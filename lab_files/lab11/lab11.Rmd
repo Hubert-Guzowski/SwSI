@@ -236,7 +236,7 @@ plot_explanations(lime_explanations)
 
 **1. Przeanalizuj wyjaśnienia LIME dla pierwszej obserwacji. Które
 czynniki środowiskowe najbardziej wpływają na predykcję? Zinterpretuj
-kierunki wpływu?**
+kierunki wpływu.**
 
 # LIME w Pythonie
 

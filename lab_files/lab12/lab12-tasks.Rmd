@@ -1,0 +1,261 @@
+---
+title: "Modele efektów mieszanych - cz. 2"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(lme4)
+library(readr)
+library(dplyr)
+library(tidyr)
+library(stringr)
+library(ggplot2)
+```
+
+## Przykład: Osiągnięcia graczy NBA
+
+Dane pochodzą ze strony https://www.kaggle.com/datasets/vivovinco/20222023-nba-player-stats-regular
+oryginalnie z https://www.basketball-reference.com/leagues/NBA_2023_per_game.html.
+Są to dane z sezonu zasadniczego 2022/23.
+
+```{r}
+nba_df <- read_csv("nba-players-2022-3.csv", col_types = "icciciiiiidiidiiddiidiiiiiiiiic")
+head(nba_df)
+```
+
+### Uporządkowanie danych
+
+Pozbywamy się wartości niedostępnych
+
+```{r}
+nba_df <- nba_df |> drop_na()
+```
+
+Niektórzy gracze występowali na 2 pozycjach
+
+```{r}
+nba_df |>  
+  select(Rk, Player, Pos, Tm) |> 
+  filter(str_detect(Pos, "-"))
+```
+
+Przypisujemy im pierwszą pozycję i przekształcamy (dopiero teraz) kolumnę `Pos`
+na czynnik
+
+```{r}
+nba_df <- 
+  nba_df |> 
+  mutate(Pos = as.factor(str_match(Pos, "^\\w+")))
+table(nba_df$Pos)
+```
+
+Niektórzy gracze w ciągu sezonu zmieniali klub
+
+```{r}
+transfered_df <- 
+  nba_df |> 
+  select(Rk, Tm) |> 
+  group_by(Rk) |> 
+  summarise(NClubs = n()) |> 
+  filter(NClubs > 1)
+
+transfered_df
+```
+
+Dla nich pozostawiamy tylko wyniki sumaryczne (`TM = "TOT"`)
+
+```{r}
+nba_df <-
+  nba_df |> 
+  filter(!(Rk %in% transfered_df$Rk) | Tm == "TOT")
+nba_df
+```
+
+Estymata MLE skuteczności na poszczególnych pozycjach
+
+```{r}
+nba_df |>  
+  group_by(Pos) |> 
+  summarise(Acc = sum(FT) / sum(FTA))
+```
+
+Estymata MLE skuteczności ogólnej
+
+```{r}
+nba_df |>  
+  summarise(TotalAcc = sum(FT) / sum(FTA))
+```
+
+### Analiza skuteczności wykonywania rzutów wolnych
+
+Wizualna analiza zależności skuteczności od pozycji
+
+```{r}
+nba_df |> 
+  ggplot(aes(x = Pos, y = `FT%`)) +
+  geom_boxplot()
+```
+
+Wizualna analiza zależności skuteczności wykonywania rzutów wolnych od średniej
+liczby punktów zdobytych w meczu.
+
+```{r}
+nba_df |> 
+  ggplot(aes(x = PTS / G, y = `FT%`)) +
+  geom_point(aes(color = Pos))
+```
+
+```{r}
+nba_df |> 
+  ggplot(aes(x = PTS / G, y = `FT%`)) +
+  geom_point(aes(color = Pos)) +
+  facet_wrap(~Pos)
+```
+
+Wyjściowo używamy modelu RI w wersji GLMM (Generalized Linear Mixed Model)
+z **trzema** poziomami:
+
+1. poziom pojedynczego rzutu wolnego ($i$, trafiony/nie trafiony),
+
+2. poziom gracza ($p$),
+
+3. poziom pozycji ($pos$).
+
+Przy tym poziomy są kolejno zagnieżdżone.
+
+Jeśli przez $Z$ oznaczymy zmienną reprezentującą wynik pojedynczego rzutu, to
+równania modelu wyjściowego mają więc postać ($h$ to **funkcja logistyczna**)
+$$
+\begin{aligned}
+  Z_{i | p | pos} & \sim Bern(h(b_{p | pos})), & & \\
+  b_{p | pos} & = b_{pos} + u_{p|pos}, &u_{p|pos} & \sim N(0, \sigma_{p|pos}),\\
+  b_{pos} & = \beta_0 + v_{pos}, & v_{pos} & \sim N(0, \sigma_{pos}).
+\end{aligned}
+$$
+
+Jednak w danych poziom 1 występuje w postaci **zagregowanej**. W naszych
+równaniach wygląda to następująco:
+$$
+\begin{aligned}
+  FT_{p | pos} & \sim Binom(FTA_{p | pos}, h(b_{p | pos})), & & \\
+  b_{p | pos} & = b_{pos} + u_{p|pos}, &u_{p|pos} & \sim N(0, \sigma_{p|pos}),\\
+  b_{pos} & = \beta_0 + v_{pos}, & v_{pos} & \sim N(0, \sigma_{pos}).
+\end{aligned}
+$$
+
+Łącząc powyższe równania otrzymujemy
+$$
+  FT_{p | pos} \sim 
+  Binom \left(
+  FTA_{p | pos},
+  h \left(  \beta_0 + v_{pos} + u_{p | pos} \right)
+  \right),
+$$
+przy czym:
+
+- efektem stałym jest $\beta_0$,
+
+- efektami losowymi są: $v_{pos}$ i $u_{p | pos}$.
+
+Model ten należy do kategorii GLMM (Generalized Linear Mixed Model). W `R`
+dopasowuje się go następująco:
+
+- używamy funkcji `glmer()` (a nie `lmer()`),
+
+- deklarowana zmienna odpowiedzi w naszej sytuacji to macierz dwukolumnowa,
+w której pierwsza kolumna zawiera liczbę trafień, a druga liczbę rzutów
+niecelnych,
+
+- efektami stałymi i losowymi są tylko wyrazy wolne, ale efekty losowe działają
+na 2 poziomach - pozycji (`Pos`) i gracza - przy czym instancje poziomu gracza są
+zagnieżdżone w instancjach poziomu pozycji (`Player:Pos`),
+
+- używamy rodziny rozkładów dwumianowych (`binomial`).
+
+```{r}
+nba_fit <- glmer()
+summary(nba_fit)
+```
+
+Efekt stały: średnia skuteczność
+
+```{r}
+fe <- fixef(nba_fit)
+fes <- c(fe, plogis(fe))
+names(fes)[2] <- "FT_Acc"
+fes
+```
+
+To samo można uzyskać również przy pomocy funkcji `predict()`, ale trzeba
+odpowiednio wybrać efekty losowe, względem których się warunkuje
+(parametr `re.form`). W tym przypadku nie uwzględniamy żadnych efektów
+losowych.
+
+```{r}
+predict(nba_fit, data.frame(NA), re.form = NA, type = "response")
+```
+
+Efekty losowe poziomu 3: średnia skuteczność na poszczególnych pozycjach
+
+```{r}
+ranef(nba_fit)$Pos |> 
+  mutate(FT_Acc = plogis(`(Intercept)` + fe))
+```
+
+Ponownie, to samo można uzyskać przy pomocy funkcji `predict()`.
+
+```{r}
+predict(nba_fit, nba_df |> distinct(Pos) |> arrange(Pos), re.form = ~(1 | Pos), type = "response")
+```
+
+Zestawienie estymat MLE z estymatami modelu GLMM.
+
+```{r}
+nba_df |> 
+  group_by(Pos) |> 
+  summarise(FT_Acc_MLE = sum(FT) / sum(FTA)) |> 
+  mutate(FT_Acc_GLMM = predict(nba_fit, data.frame(Pos = Pos), re.form = ~(1 | Pos), type = "response")) 
+```
+
+```{r}
+nba_df |> 
+  ggplot(aes(x = PTS / G, y = `FT%`)) +
+  geom_point(aes(color = Pos)) +
+  geom_hline(
+    aes(
+      yintercept = predict(nba_fit, data.frame(Pos = Pos), re.form = ~(1 | Pos), type = "response"),
+      color = Pos)
+    ) +
+  facet_wrap(~Pos)
+```
+
+Predykcja osiągnięć dla wybranych graczy. Proszę zwrócić uwagę na różnicę
+między skutecznością faktyczną a przewidywaną i jej odniesienie do
+średniej przewidywanej skuteczności dla pozycji.
+
+```{r}
+player_rks <- c(2, 143, 488, 101, 137, 348, 164, 397, 58, 335, 24, 149)
+nba_df |> 
+  filter(Rk %in% player_rks) |> 
+  mutate(Predicted = predict(nba_fit, data.frame(Player = Player, Pos = Pos), type = "response")) |> 
+  mutate(PosPredicted = predict(nba_fit, data.frame(Pos = Pos), re.form = ~(1 | Pos), type = "response")) |> 
+  select(Rk, Player, Pos, Predicted, `FT%`, FT, FTA, PosPredicted) |> 
+  arrange(Pos)
+```
+
+### Zadanie
+
+Porównaj model RI z następującymi modelami GLMM:
+
+- uproszczonym modelem RI z efektem losowym tylko na poziomie 3 (pozycji);
+
+- modelem z drugim efektem stałym - średnią liczbą punktów zdobytych w meczu -
+i losowymi wyrazami wolnymi jak w modelu wyjściowym;
+
+- modelem z dwoma efektam stałymi jak wyżej i z dodanym efektem losowym - średnią
+punktów na mecz - na poziomie pozycji; łącznie ma tu być 2 efekty stałe
+i 3 efekty losowe.
+
+**Uwaga**. W modelach uwzględniających średnią liczbę punktów na mecz warto tę
+ostatnią wielkość przeskalować (ustandaryzować).

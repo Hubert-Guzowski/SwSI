@@ -1,0 +1,417 @@
+---
+title: "Modele efektów mieszanych"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+set.seed(2015)
+library(lme4)
+library(ggplot2)
+library(tibble)
+```
+
+### Przykład z wykładu
+
+```{r}
+head(sleepstudy, 10)
+tail(sleepstudy, 10)
+```
+
+Zależność czasu reakcji od czasu trwania badania
+
+```{r}
+sleepstudy |>
+  ggplot(aes(x = Days, y = Reaction)) +
+  geom_point()
+```
+
+### Model liniowy najmniejszych kwadratów
+
+```{r}
+ss_lm_fit <- lm(Reaction ~ Days, data = sleepstudy)
+summary(ss_lm_fit)
+```
+
+Prosta regresji na tle danych
+
+```{r}
+sleepstudy |> 
+  ggplot(aes(x = Days, y = Reaction)) +
+  geom_point() +
+  geom_line(aes(y = predict(ss_lm_fit)))
+```
+
+Podział danych względem poziomów (badanych osób)
+
+```{r}
+sleepstudy |>
+  ggplot(aes(x = Days, y = Reaction)) +
+  geom_point(aes(color = Subject)) +
+  geom_line(aes(y = predict(ss_lm_fit)))
+```
+
+Podział względem poziomów --- każdy poziom osobno
+
+```{r}
+sleepstudy |> 
+  ggplot(aes(x = Days, y = Reaction)) +
+  geom_point(aes(color = Subject)) +
+  geom_line(aes(y = predict(ss_lm_fit))) +
+  facet_wrap(~ Subject)
+```
+
+### Model losowych wyrazów wolnych (RI)
+
+Równanie **poziomu 1** (czyli poziomu obserwacji):
+$$
+  Reaction_{i|s} = b_s + \epsilon_{i|s}, \quad 
+  \epsilon_{i|s} \sim N(0, \sigma),
+$$
+Równanie **poziomu 2** (badanej osoby):
+$$
+  b_s = \beta_0 + u_s, \quad
+  u_s \sim N(0, \sigma_u).
+$$
+
+Łącząc te równania otrzymujemy równanie modelu RI
+$$
+  Reaction_{i|s} = \beta_0 + u_s + \epsilon_{i|s}
+$$
+
+**Efektem stałym** jest $\beta_0$, **efektem losowym** jest $u_s$.
+
+```{r}
+ss_ri_fit <- lmer(Reaction ~ 1 + (1 | Subject), data = sleepstudy)
+summary(ss_ri_fit)
+```
+
+Obliczenie estymat składowych wariancji $\sigma^2$ i $\sigma^2_u$:
+
+```{r}
+ss_ri_vcov <- as.data.frame(VarCorr(ss_ri_fit))$vcov
+names(ss_ri_vcov) <- c("sigma^2_u", "sigma^2")
+ss_ri_vcov
+```
+
+Możemy na tej podstawie obliczyć **współczynnik korelacji wewnątrzklasowej**
+czyli stosunek zmienności związanej z różnicami pomiędzy poziomami 
+do całkowitej zmienności zmiennej objaśnianej.
+
+```{r}
+ss_ri_vcov["sigma^2_u"] / sum(ss_ri_vcov)
+```
+
+
+Proste regresji w modelu RI
+
+```{r}
+sleepstudy |> 
+  ggplot(aes(x = Days, y = Reaction, color = Subject)) +
+  geom_point() +
+  geom_line(aes(y = predict(ss_ri_fit)))
+```
+
+Podział względem poziomów
+
+```{r}
+sleepstudy |> 
+  ggplot(aes(x = Days, y = Reaction, color = Subject)) +
+  geom_point() +
+  geom_line(aes(y = predict(ss_ri_fit))) +
+  facet_wrap(~ Subject)
+```
+
+### Model losowych wyrazów wolnych i współczynników kierunkowych (RSI)
+
+Równanie poziomu 1 (dodajemy predyktor):
+$$
+  Reaction_{i|s} = b_s + b'_s \cdot Days_{i|s} +\epsilon_{i|s}, \quad 
+  \epsilon_{i|s} \sim N(0, \sigma).
+$$
+
+Na poziomie 2 mamy 2 równania:
+$$
+\begin{aligned}
+  b_s &= \beta_0 + u_s, & u_s &\sim N(0, \sigma_u),\\
+  b'_s &= \beta_1 + v_s, & v_s &\sim N(0, \sigma_v).
+\end{aligned}
+$$
+Łącząc te równania otrzymujemy
+$$
+  Reaction_{i|s} = \beta_0 + \beta_1 \cdot Days_{i|s} + 
+  \left[ 
+  u_s + v_s \cdot Days_{i|s} + \epsilon_{i|s}
+  \right]
+$$
+
+- Efektami stałymi są $\beta_0$ i $\beta_1$.
+
+- Efektami losowymi są $u_s$ i $v_s$.
+
+Rozkład prawdopodobieństwa błędów
+$$
+\begin{bmatrix} 
+  u_s \\ 
+  v_s 
+\end{bmatrix}
+\sim
+N
+\left(
+\begin{bmatrix}
+  0 \\ 
+  0
+\end{bmatrix},
+\begin{bmatrix}
+  \sigma_u^2 & \rho_{u,v} \sigma_u \sigma_v \\ 
+  \rho_{u,v} \sigma_u \sigma_v & \sigma_v^2
+\end{bmatrix}
+\right),
+$$
+gdzie
+$$
+  \rho_{u,v} = \frac{Cov(u, v)}{\sigma_u \sigma_v}.
+$$
+
+```{r}
+ss_rsi_fit <- lmer(Reaction ~ Days + (Days | Subject), data = sleepstudy)
+summary(ss_rsi_fit)
+```
+
+Estymaty współczynników modelu:
+
+- $\beta_0$ - średni czas reakcji, 
+
+- $\beta_1$ - średni wzrost czasu reakcji w ciągu 1 dnia.
+
+```{r}
+fixef(ss_rsi_fit)
+```
+
+Estymaty składowych wariancji/kowariancji $\sigma^2_u$, $\sigma^2_v$,
+$\rho_{uv}$ i $\sigma^2$:
+
+```{r}
+ss_rsi_vc <- as.data.frame(VarCorr(ss_rsi_fit))
+sigma_rho <- ss_rsi_vc$vcov
+sigma_rho[3] <- ss_rsi_vc$sdcor[3]
+names(sigma_rho) <- c("sigma^2_u", "sigma^2_v", "rho_uv", "sigma^2")
+sigma_rho
+```
+
+Proste regresji w modelu RSI
+
+```{r}
+sleepstudy |> 
+  ggplot(aes(x = Days, y = Reaction, color = Subject)) +
+  geom_point() +
+  geom_line(aes(y = predict(ss_rsi_fit)))
+```
+
+Proste regresji w modelu RSI --- podział na poziomy
+
+```{r}
+sleepstudy |> 
+  ggplot(aes(x = Days, y = Reaction, color = Subject)) +
+  geom_point() +
+  geom_line(aes(y = predict(ss_rsi_fit))) +
+  facet_wrap(~ Subject)
+```
+
+### Model pośredni: ustalony współczynnik kierunkowy, losowe wyrazy wolne (RIFS)
+
+Równanie poziomu 1:
+$$
+  Reaction_{i|s} = b_s + \beta_1 \cdot Days_{i|s} +\epsilon_{i|s}, \quad 
+  \epsilon_{i|s} \sim N(0, \sigma).
+$$
+
+Równanie poziomu 2:
+$$
+  b_s = \beta_0 + u_s, \quad u_s \sim N(0, \sigma_u)
+$$
+
+Łącząc te równania otrzymujemy
+$$
+  Reaction_{i|s} = \beta_0 + \beta_1 \cdot Days_{i|s} + 
+  \left[ 
+  u_s +\epsilon_{i|s}
+  \right]
+$$
+
+- Efektami stałymi są $\beta_0$ i $\beta_1$.
+
+- Efektem losowym jest $u_s$.
+
+```{r}
+ss_rifs_fit <- lmer(Reaction ~ Days + (1 | Subject), data = sleepstudy)
+summary(ss_rifs_fit)
+```
+
+Proste regresji w modelu RIFS
+
+```{r}
+sleepstudy |> 
+  ggplot(aes(x = Days, y = Reaction, color = Subject)) +
+  geom_point() +
+  geom_line(aes(y = predict(ss_rifs_fit)))
+```
+
+Proste regresji w modelu RIFS --- podział na poziomy
+
+```{r}
+sleepstudy |> 
+  ggplot(aes(x = Days, y = Reaction, color = Subject)) +
+  geom_point() +
+  geom_line(aes(y = predict(ss_rifs_fit))) +
+  facet_wrap(~ Subject)
+```
+
+### Inny model pośredni: losowe współczynniki kierunkowe, ustalony wyraz wolny (FIRS)
+
+Równanie poziomu 1:
+$$
+  Reaction_{i|s} = \beta_0 + b'_s \cdot Days_{i|s} +\epsilon_{i|s}, \quad 
+  \epsilon_{i|s} \sim N(0, \sigma).
+$$
+
+Równanie poziomu 2:
+$$
+  b'_s = \beta_1 + v_s, \quad v_s \sim N(0, \sigma_v)
+$$
+
+Łącząc te równania otrzymujemy
+$$
+  Reaction_{i|s} = \beta_0 + \beta_1 \cdot Days_{i|s} + 
+  \left[ 
+  v_s \cdot Days_{i|s} +\epsilon_{i|s}
+  \right]
+$$
+
+- Efektami stałymi są $\beta_0$ i $\beta_1$.
+
+- Efektem losowym jest $v_s$.
+
+```{r}
+ss_firs_fit <- lmer(Reaction ~ Days + (0 + Days | Subject), data = sleepstudy)
+summary(ss_firs_fit)
+```
+
+Proste regresji w modelu FIRS
+
+```{r}
+sleepstudy |> 
+  ggplot(aes(x = Days, y = Reaction, color = Subject)) +
+  geom_point() +
+  geom_line(aes(y = predict(ss_firs_fit)))
+```
+
+Proste regresji w modelu FIRS --- podział na poziomy
+
+```{r}
+sleepstudy |> 
+  ggplot(aes(x = Days, y = Reaction, color = Subject)) +
+  geom_point() +
+  geom_line(aes(y = predict(ss_firs_fit))) +
+  facet_wrap(~ Subject)
+```
+
+### Model losowych wyrazów wolnych i współczynników kierunkowych z błędami niezależnymi (RSI-i)
+
+Równanie poziomu 1 (dodajemy predyktor):
+$$
+  Reaction_{i|s} = b_s + b'_s \cdot Days_{i|s} +\epsilon_{i|s}, \quad 
+  \epsilon_{i|s} \sim N(0, \sigma).
+$$
+
+Na poziomie 2 mamy 2 równania:
+$$
+\begin{aligned}
+  b_s &= \beta_0 + u_s, & u_s &\sim N(0, \sigma_u),\\
+  b'_s &= \beta_1 + v_s, & v_s &\sim N(0, \sigma_v).
+\end{aligned}
+$$
+Łącząc te równania otrzymujemy
+$$
+  Reaction_{i|s} = \beta_0 + \beta_1 \cdot Days_{i|s} + 
+  \left[ 
+  u_s + v_s \cdot Days_{i|s} + \epsilon_{i|s}
+  \right]
+$$
+
+- Efektami stałymi są $\beta_0$ i $\beta_1$.
+
+- Efektami losowymi są $u_s$ i $v_s$.
+
+Ale tym razem rozważamy **uproszczony** rozkład prawdopodobieństwa błędów,
+w którym efekty losowe są niezależne, tzn.
+
+$$
+\begin{bmatrix} 
+  u_s \\ 
+  v_s 
+\end{bmatrix}
+\sim
+N
+\left(
+\begin{bmatrix}
+  0 \\ 
+  0
+\end{bmatrix},
+\begin{bmatrix}
+  \sigma_u^2 & 0 \\ 
+  0 & \sigma_v^2
+\end{bmatrix}
+\right).
+$$
+
+```{r}
+ss_rsii_fit <- lmer(Reaction ~ Days + (Days || Subject), data = sleepstudy)
+summary(ss_rsii_fit)
+```
+
+Estymaty składowych wariancji/kowariancji $\sigma^2_u$, $\sigma^2_v$ i $\sigma^2$
+(w tym przypadku $\rho_{uv} = 0$):
+
+```{r}
+ss_rsii_vcov <- as.data.frame(VarCorr(ss_rsii_fit))$vcov
+names(ss_rsii_vcov) <- c("sigma^2_u", "sigma^2_v", "sigma^2")
+ss_rsii_vcov
+```
+
+Proste regresji w modelu RSI-i
+
+```{r}
+sleepstudy |> 
+  ggplot(aes(x = Days, y = Reaction, color = Subject)) +
+  geom_point() +
+  geom_line(aes(y = predict(ss_rsii_fit)))
+```
+
+Proste regresji w modelu RSI-i --- podział na poziomy
+
+```{r}
+sleepstudy |> 
+  ggplot(aes(x = Days, y = Reaction, color = Subject)) +
+  geom_point() +
+  geom_line(aes(y = predict(ss_rsii_fit))) +
+  facet_wrap(~ Subject)
+```
+
+### Porównanie modeli
+
+```{r}
+anova(ss_rsi_fit, ss_rsii_fit, ss_rifs_fit, ss_firs_fit, ss_ri_fit)
+```
+
+Porównanie estymat współczynników
+
+```{r}
+coefs <- 
+  list(ss_rsi_fit, ss_rsii_fit, ss_rifs_fit, ss_firs_fit) |> 
+  vapply(fixef, FUN.VALUE = double(2)) |> 
+  cbind(c(fixef(ss_ri_fit), NA)) |> 
+  cbind(coef(ss_lm_fit))
+colnames(coefs) <- c("RSI", "RSI-i", "RIFS", "FIRS", "RI", "LM")
+coefs
+```
