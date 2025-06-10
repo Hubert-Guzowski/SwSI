@@ -20,7 +20,7 @@ oryginalnie z https://www.basketball-reference.com/leagues/NBA_2023_per_game.htm
 Są to dane z sezonu zasadniczego 2022/23.
 
 ```{r}
-nba_df <- read_csv("nba-players-2022-3.csv", col_types = "icciciiiiidiidiiddiidiiiiiiiiic")
+nba_df <- read_delim("nba-players-2022-3.csv", delim = ";")
 head(nba_df)
 ```
 
