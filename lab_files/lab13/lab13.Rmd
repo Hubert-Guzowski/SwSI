@@ -1,0 +1,258 @@
+---
+title: "SHAP"
+output: html_document 
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+# Laboratorium: Wartości SHAP (SHapley Additive exPlanations)
+
+## Wprowadzenie
+
+Wartości SHAP to metoda oparta o teorię gier stosowana w uczeniu
+maszynowym do wyjaśniania predykcji modeli. Pozwalają one zrozumieć, jak
+każda zmienna wpływa na konkretną predykcję, przypisując każdej cesze
+wartość odpowiadającą jej wkładowi w różnicę między predykcją z jej
+wkładem i bez niego.
+
+Wartości SHAP bazują na **wartościach Shapleya** z teorii gier. W teorii
+gier mamy:
+
+-   **Graczy** (w ML: cechy/zmienne)
+-   **Koalicje** (w ML: podzbiory cech)
+-   **Funkcję wypłaty** (w ML: predykcję modelu)
+
+Jak sprawiedliwie podzielić "wypłatę" (predykcję) między wszystkich
+"graczy" (cechy)?
+
+Wartość SHAP dla cechy $i$ obliczamy jako:
+
+$$
+\phi_i = \sum_{S \subseteq F \setminus \{i\}} \frac{|S|! \, (M - |S| - 1)!}{M!} \left[ f(S \cup \{i\}) - f(S) \right]
+$$
+
+Gdzie:
+
+-   $F$ to zbiór wszystkich cech
+-   $M = |F|$ to liczba cech
+-   $S$ to dowolny podzbiór cech nie zawierający $i$
+
+Dla interpretacji, wzór ten można sprowadzić do:
+
+$$
+\phi_i = \sum_{\text{wszystkie koalicje } S} \underbrace{\left[\frac{|S|!(M-|S|-1)!}{M!}\right]}_{\text{waga koalicji } S} \times \underbrace{\left[f(S \cup \{i\}) - f(S)\right]}_{\text{wpływ dodania cechy } i}
+$$
+
+SHAP jest więc matematycznie uzasadnionym narzędziem tłumaczącym
+predykcję, które sprawiedliwie dzieli jej wartość pomiędzy wkład każdej
+z cech i jest niezależne od samego modelu. Nie jest natomiast narzędziem
+bez wad, gdyż potrafi być bardzo wymagające obliczeniowo i nie wyjaśni
+samoczynnie korelacji między cechami - dostrzeżenie jej jest już
+zadaniem dla użytkownika.
+
+## Przygotowanie pakietów
+
+```{r packages, message=FALSE, warning=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+
+library(shapr)      # Implementacja wartości SHAP
+library(ggplot2)    # Wizualizacje
+library(corrplot)   # Macierz korelacji
+library(reticulate) # Integracja z pythonem
+```
+
+## Dane: Zbiór Wine Quality
+
+Użyjemy dobrze już poznanego zbioru wine-quality
+
+```{r data_loading}
+winequality_white <- read.csv("http://archive.ics.uci.edu/ml/machine-learning-databases/wine-quality/winequality-white.csv", sep = ";")
+winequality_red <- read.csv("http://archive.ics.uci.edu/ml/machine-learning-databases/wine-quality/winequality-red.csv", sep = ";")
+
+winequality_white["white"] = 1
+winequality_red["white"] = 0
+wine_data <- rbind(winequality_red, winequality_white)
+
+# Rozkład zmiennej objaśnianej
+table(wine_data$quality)
+```
+
+Z zadania do labów 4 pamiętamy własności tego zbioru, takie jak
+niezbalansowanie liczności klas, czy korelacja zawartości alkoholu z
+gęstością.
+
+```{r data_exploration}
+# Macierz korelacji między zmiennymi
+cor_matrix <- cor(wine_data)
+corrplot(cor_matrix, method = "color", type = "upper")
+
+# Histogram zmiennej objaśnianej
+ggplot(wine_data, aes(x = quality)) +
+  geom_histogram(bins = 7, fill = "darkred", alpha = 0.7) +
+  labs(title = "Rozkład jakości wina", x = "Jakość", y = "Liczba obserwacji") +
+  theme_minimal()
+```
+
+## SHAP dla rodzaju wina
+
+Cześć modeli jest domyślnie wspierana przez shapr, pozostałe trzeba
+opakować w dodatkową funkcję predict. Dla wygody wykorzystamy glm.
+
+```{r supported_models}
+get_supported_models()
+```
+
+Regresja logistyczna sprawdza się bardzo dobrze do predykcji rodzaju
+wina.
+
+```{r model_preparation}
+type_model <- glm(white ~ ., family = binomial, data = wine_data)
+pred_probs <- predict(type_model, type = "response")
+predicted_classes <- ifelse(pred_probs > 0.5, 1, 0)
+confusion_matrix <- table(Predicted = predicted_classes, Actual = wine_data$white)
+print(confusion_matrix)
+```
+
+Spróbujmy wyliczyć wytłumaczenie dla predykcji w oparciu o SHAP:
+
+```{r shap_calculation}
+set.seed(123)
+wine_data <- wine_data[sample(nrow(wine_data)), ] # Przy tworzeniu danych uszeregowaliśmy je a do shapa potrzebujemy przykładów dla obu klas
+
+x_train <- wine_data[, setdiff(names(wine_data), "white")]
+x_explain <- x_train[1:20, ]
+
+phi0 <- mean(predict(type_model, newdata = x_explain, type = "response"))
+
+explainer <- shapr::explain(
+  model = type_model,
+  x_train = x_train,
+  x_explain = x_explain,
+  approach = "gaussian",
+  phi0 = phi0
+)
+
+print(shap_values)
+```
+
+**1. Zastanów się, co może być przyczyną błędu dla wyliczenia wartości
+shap i opisz swoje spostrzeżenia. Podpowiedź w komórce poniżej**
+
+```{r}
+pred_probs <- predict(type_model, newdata = x_explain, type = "response")
+print(pred_probs)
+summary(pred_probs)
+```
+
+## SHAP dla jakości wina
+
+W dalszej części laboratorium będziemy już korzystać z shapa w pythonie
+
+```{python setup}
+from catboost import CatBoostRegressor
+from sklearn.metrics import mean_squared_error, r2_score
+from sklearn.model_selection import train_test_split
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+import shap
+
+wine_df = r.wine_data
+print(wine_df.info())
+
+y = wine_df["quality"]
+X = wine_df.drop(columns=["quality"])
+
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y, test_size=0.2, random_state=42
+)
+```
+
+Wykorzystamy poznany wcześniej CatBoost do predykcji jakości.
+
+```{python train_catboost}
+model = CatBoostRegressor(verbose=0, random_state=42)
+model.fit(X_train, y_train)
+
+y_pred = model.predict(X_test)
+print(f"RMSE: {np.sqrt(mean_squared_error(y_test, y_pred)):.3f}")
+print(f"R²: {r2_score(y_test, y_pred):.3f}")
+```
+
+Podstawowe zastosowanie shap dostarczy nam wartości wkładu cech dla
+każdej z predykcji. Zagregowane utworzą tzw. wykres roju.
+
+```{python shap}
+explainer = shap.Explainer(model)
+shap_values = explainer(X_test)
+
+plt.figure() # Tworzenie figury, żeby kolejne na siebie nie nachodziły
+shap.plots.beeswarm(shap_values, show=False)
+plt.tight_layout()
+plt.subplots_adjust(left=0.4) # RStudio lubi przycinać wykresy z lewej strony
+plt.show()
+```
+
+Możemy też wyświetlić wykres waterfall dla pojedynczej predykcji -
+przypomina formą lime
+
+```{python shap single}
+i = 0  # można zmienić na inny indeks i zobaczyć, jak zmienia się wpływ cech
+plt.figure()
+shap.plots.waterfall(shap_values[i], show=False)
+plt.tight_layout()
+plt.subplots_adjust(left=0.4)
+plt.show()
+
+print(f"Predykcja dla obserwacji {i}:")
+print(f"Rzeczywista jakość: {y_test.iloc[i]}")
+print(f"Predykcja modelu: {y_pred[i]:.2f}")
+print(f"Wartość bazowa: {shap_values[i].base_values:.2f}")
+```
+
+Wartości SHAP dla niektórych cech nie rozłożą się z ładnym odcięciem
+pomiędzy wartościami wysokimi i niskimi. W takich sytuacjach warto
+zacząć analizować zależności poprzez wykorzystanie dodatkowych wykresów.
+
+```{python shap_by_quality_category}
+plt.figure(figsize=(15, 5))
+shap.plots.scatter(shap_values[:, "alcohol"], color=shap_values[:, "density"], show=False)
+plt.title('Wartości SHAP dla zawartości alkoholu pokolorowane według gęstości')
+
+plt.tight_layout()
+plt.show()
+```
+
+**2. Jakie dwie informacje przekazuje nam powyższy wykres?**
+
+Następnie możemy rozdzielać analizowany zbiór według istotnie
+różnicujących wartości cech (szczególnie, jeśli sa kategoryczne), i
+przeprowadzać analize dla podzbiorów.
+
+```{python wine_type_sugar_analysis}
+mask_red = (X_test['white'] == 0).values
+mask_white = (X_test['white'] == 1).values
+
+# Beeswarm dla win czerwonych
+plt.figure()
+shap_red = shap_values[mask_red]
+shap.plots.beeswarm(shap_red, show=False)
+plt.title(f'SHAP beeswarm - Wina czerwone (n={mask_red.sum()})')
+plt.tight_layout()
+plt.subplots_adjust(left=0.4)
+plt.show()
+
+# Beeswarm dla win białych
+plt.figure()
+shap_white = shap_values[mask_white]
+shap.plots.beeswarm(shap_white, show=False)
+plt.title(f'SHAP beeswarm - Wina białe (n={mask_white.sum()})')
+plt.tight_layout()
+plt.subplots_adjust(left=0.4)
+plt.show()
+```
+
+**3.a) Jakie największe różnice dla istotności cech można zaobserwować
+porównując te dwa rodzaje wina? 3.b) Jak zintepretować cechę 'white'
+widoczną na wykresie dla win czerwonych?**
