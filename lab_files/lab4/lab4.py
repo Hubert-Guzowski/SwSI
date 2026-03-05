@@ -1,6 +1,6 @@
 import marimo
 
-__generated_with = "0.19.9"
+__generated_with = "0.19.11"
 app = marimo.App(width="medium")
 
 
@@ -31,21 +31,19 @@ def _():
     from scipy.stats import poisson
     import plotly.express as px
     import plotly.graph_objects as go
+
     return (
-        ConfusionMatrixDisplay,
         KNeighborsClassifier,
         LinearDiscriminantAnalysis,
         QuadraticDiscriminantAnalysis,
         accuracy_score,
         classification_report,
         confusion_matrix,
-        go,
         np,
         pd,
         poisson,
         px,
         sm,
-        smf,
         train_test_split,
     )
 
@@ -86,18 +84,7 @@ def _(np, pd, px, sm):
     fig_demo.add_vline(x=decision_boundary, line_dash='dash', line_color='red',
                        annotation_text=f'Granica: X={decision_boundary:.2f}')
     fig_demo.show()
-    return (
-        Y_demo,
-        X_demo,
-        decision_boundary,
-        demo_model,
-        df_demo,
-        fig_demo,
-        log_odds,
-        p_demo,
-        pred_probs_demo,
-        rng,
-    )
+    return
 
 
 @app.cell(hide_code=True)
@@ -128,7 +115,7 @@ def _(titanic_data, train_test_split):
     train_data, test_data = train_test_split(titanic_clean, test_size=0.3, random_state=123)
     print(f"Zbiór treningowy: {len(train_data)} wierszy")
     print(f"Zbiór testowy: {len(test_data)} wierszy")
-    return test_data, titanic_clean, train_data
+    return test_data, train_data
 
 
 @app.cell
@@ -139,7 +126,7 @@ def _(sm, train_data):
 
     titanic_model = sm.GLM(y_titanic, X_titanic, family=sm.families.Binomial()).fit()
     titanic_model.summary()
-    return X_titanic, titanic_model, y_titanic
+    return (titanic_model,)
 
 
 @app.cell
@@ -154,7 +141,7 @@ def _(confusion_matrix, pd, sm, test_data, titanic_model):
                          columns=['Predicted 0', 'Predicted 1'])
     print("Macierz pomyłek:")
     print(cm_df)
-    return X_test_titanic, cm, cm_df, titanic_pred_classes, titanic_pred_probs
+    return (titanic_pred_classes,)
 
 
 @app.cell
@@ -191,7 +178,7 @@ def _(pd):
 
 
 @app.cell
-def _(kicks_df):
+def _(kicks_df, pd):
     kicks_long = kicks_df.stack().reset_index()
     kicks_long.columns = ['battalion', 'year', 'deaths']
     kicks_long['year'] = pd.to_numeric(kicks_long['year'])
@@ -220,16 +207,7 @@ def _(kicks_long, np, poisson):
         'Expected_%': poisson_probs * 100
     })
     results_kicks
-    return (
-        expected_counts,
-        lambda_hat,
-        observed_counts,
-        observed_props,
-        pd_kicks,
-        poisson_probs,
-        results_kicks,
-        total_corps_years,
-    )
+    return
 
 
 @app.cell
@@ -240,7 +218,7 @@ def _(kicks_long, sm):
         family=sm.families.Poisson()
     ).fit()
     poisson_model.summary()
-    return (poisson_model,)
+    return
 
 
 @app.cell(hide_code=True)
@@ -273,7 +251,7 @@ def _(np, pd):
 
     df_ord = pd.DataFrame({'X': X_ord, 'Y': Y_ord})
     df_ord.head()
-    return X_ord, Y_ord, df_ord, latent_score, logistic_dist, rng2
+    return (df_ord,)
 
 
 @app.cell
@@ -296,16 +274,7 @@ def _(df_ord, np, px):
                       title='Regresja porządkowa - prawdopodobieństwa klas',
                       labels={'value': 'Prawdopodobieństwo', 'variable': 'Klasa'})
     fig_ord.show()
-    return (
-        OrderedModel,
-        X_grid_ord,
-        fig_ord,
-        ord_model,
-        ord_result,
-        pd_ord,
-        pred_df,
-        pred_probs_ord,
-    )
+    return
 
 
 @app.cell(hide_code=True)
@@ -334,7 +303,7 @@ def _(LinearDiscriminantAnalysis, confusion_matrix, pd, test_data, train_data):
     print("LDA - macierz pomyłek:")
     print(pd.DataFrame(cm_lda, index=['Actual 0', 'Actual 1'],
                        columns=['Predicted 0', 'Predicted 1']))
-    return X_test_lda, X_train_lda, cm_lda, lda_pred, titanic_lda
+    return X_test_lda, X_train_lda, lda_pred
 
 
 @app.cell(hide_code=True)
@@ -349,7 +318,15 @@ def _(mo):
 
 
 @app.cell
-def _(QuadraticDiscriminantAnalysis, X_test_lda, X_train_lda, confusion_matrix, pd, test_data, train_data):
+def _(
+    QuadraticDiscriminantAnalysis,
+    X_test_lda,
+    X_train_lda,
+    confusion_matrix,
+    pd,
+    test_data,
+    train_data,
+):
     titanic_qda = QuadraticDiscriminantAnalysis()
     titanic_qda.fit(X_train_lda, train_data['Survived'])
     qda_pred = titanic_qda.predict(X_test_lda)
@@ -358,7 +335,7 @@ def _(QuadraticDiscriminantAnalysis, X_test_lda, X_train_lda, confusion_matrix, 
     print("QDA - macierz pomyłek:")
     print(pd.DataFrame(cm_qda, index=['Actual 0', 'Actual 1'],
                        columns=['Predicted 0', 'Predicted 1']))
-    return cm_qda, qda_pred, titanic_qda
+    return (qda_pred,)
 
 
 @app.cell(hide_code=True)
@@ -374,7 +351,15 @@ def _(mo):
 
 
 @app.cell
-def _(KNeighborsClassifier, X_test_lda, X_train_lda, confusion_matrix, pd, test_data, train_data):
+def _(
+    KNeighborsClassifier,
+    X_test_lda,
+    X_train_lda,
+    confusion_matrix,
+    pd,
+    test_data,
+    train_data,
+):
     titanic_knn = KNeighborsClassifier(n_neighbors=5)
     titanic_knn.fit(X_train_lda, train_data['Survived'])
     knn_pred = titanic_knn.predict(X_test_lda)
@@ -383,11 +368,18 @@ def _(KNeighborsClassifier, X_test_lda, X_train_lda, confusion_matrix, pd, test_
     print("KNN (k=5) - macierz pomyłek:")
     print(pd.DataFrame(cm_knn, index=['Actual 0', 'Actual 1'],
                        columns=['Predicted 0', 'Predicted 1']))
-    return cm_knn, knn_pred, titanic_knn
+    return (knn_pred,)
 
 
 @app.cell
-def _(accuracy_score, knn_pred, lda_pred, qda_pred, test_data, titanic_pred_classes):
+def _(
+    accuracy_score,
+    knn_pred,
+    lda_pred,
+    qda_pred,
+    test_data,
+    titanic_pred_classes,
+):
     print("Porównanie dokładności modeli:")
     print(f"  Regresja logistyczna: {accuracy_score(test_data['Survived'], titanic_pred_classes):.3f}")
     print(f"  LDA:                  {accuracy_score(test_data['Survived'], lda_pred):.3f}")

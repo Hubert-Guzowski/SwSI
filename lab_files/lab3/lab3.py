@@ -1,6 +1,6 @@
 import marimo
 
-__generated_with = "0.19.9"
+__generated_with = "0.19.11"
 app = marimo.App(width="medium")
 
 
@@ -27,7 +27,8 @@ def _():
     import numpy as np
     import plotly.express as px
     import plotly.graph_objects as go
-    return fetch_california_housing, go, np, pd, px, sm, smf
+
+    return fetch_california_housing, np, pd, px, sm, smf
 
 
 @app.cell
@@ -66,7 +67,7 @@ def _(housing_df, sm):
 
     fit_simple = sm.OLS(y, X_simple).fit()
     fit_simple.summary()
-    return X_simple, fit_simple, y
+    return (fit_simple,)
 
 
 @app.cell(hide_code=True)
@@ -110,7 +111,7 @@ def _(fit_simple, pd, sm):
     # Przedziały predykcji (szersze - dla nowych obserwacji)
     print("\nPrzedziały predykcji:")
     print(pred_ci[['mean', 'obs_ci_lower', 'obs_ci_upper']])
-    return new_X, new_data, pred_ci
+    return
 
 
 @app.cell(hide_code=True)
@@ -149,7 +150,7 @@ def _(fit_simple, housing_df, np, px):
         mode='lines', name='CI dolny', line=dict(color='red', dash='dash', width=1)
     )
     fig_simple.show()
-    return X_grid, fig_simple, pred_grid, sm_local, x_grid
+    return
 
 
 @app.cell(hide_code=True)
@@ -163,7 +164,7 @@ def _(mo):
 
 
 @app.cell
-def _(fit_simple, housing_df, px):
+def _(fit_simple, px):
     import numpy as np_diag
     from scipy import stats as scipy_stats
 
@@ -178,18 +179,11 @@ def _(fit_simple, housing_df, px):
     )
     fig_resid.add_hline(y=0, line_dash="dash", line_color="red")
     fig_resid.show()
-    return (
-        fitted_vals,
-        fig_resid,
-        np_diag,
-        residuals,
-        scipy_stats,
-        std_resid,
-    )
+    return
 
 
 @app.cell
-def _(fit_simple, housing_df, px, std_resid):
+def _(fit_simple, px):
     # Identyfikacja obserwacji wpływowych (hat values / dźwignia)
     influence = fit_simple.get_influence()
     hat_values = influence.hat_matrix_diag
@@ -202,7 +196,7 @@ def _(fit_simple, housing_df, px, std_resid):
     max_hat_idx = hat_values.argmax()
     print(f"Obserwacja o największej dźwigni: indeks {max_hat_idx}, wartość {hat_values[max_hat_idx]:.4f}")
     fig_hat.show()
-    return fig_hat, hat_values, influence, max_hat_idx
+    return
 
 
 @app.cell(hide_code=True)
@@ -225,23 +219,23 @@ def _(housing_df, smf):
     # Regresja z dwoma predyktorami
     fit_la = smf.ols('MedHouseVal ~ MedInc + AveRooms', data=housing_df).fit()
     fit_la.summary()
-    return (fit_la,)
+    return
 
 
 @app.cell
 def _(housing_df, smf):
     # Regresja względem wszystkich zmiennych
-    fit_all = smf.ols('MedHouseVal ~ .', data=housing_df).fit()
+    fit_all = smf.ols('MedHouseVal ~ ' + "+".join(housing_df.columns.difference(["MedHouseVal"])), data=housing_df).fit()
     fit_all.summary()
-    return (fit_all,)
+    return
 
 
 @app.cell
 def _(housing_df, smf):
     # Regresja z jedną zmienną usuniętą
-    fit_no_AveRooms = smf.ols('MedHouseVal ~ . - AveRooms', data=housing_df).fit()
+    fit_no_AveRooms = smf.ols('MedHouseVal ~ ' + "+".join(housing_df.columns.difference(["MedHouseVal", "AveRooms"])), data=housing_df).fit()
     fit_no_AveRooms.summary()
-    return (fit_no_AveRooms,)
+    return
 
 
 @app.cell(hide_code=True)
@@ -259,7 +253,7 @@ def _(mo):
 def _(housing_df, smf):
     fit_interact = smf.ols('MedHouseVal ~ MedInc * AveRooms', data=housing_df).fit()
     fit_interact.summary()
-    return (fit_interact,)
+    return
 
 
 @app.cell(hide_code=True)
@@ -283,18 +277,18 @@ def _(housing_df, smf):
 
 
 @app.cell
-def _(fit_l2, fit_simple, sm):
+def _(fit_l2, fit_simple):
     # Porównanie modeli przez test ANOVA (test F)
     from statsmodels.stats.anova import anova_lm
 
     anova_result = anova_lm(fit_simple, fit_l2)
     print("Test ANOVA porównujący modele liniowy i kwadratowy:")
     print(anova_result)
-    return anova_lm, anova_result
+    return
 
 
 @app.cell
-def _(housing_df, smf):
+def _(housing_df):
     # Regresja wielomianowa stopnia 3
     from sklearn.preprocessing import PolynomialFeatures
     import statsmodels.api as sm_poly
@@ -306,7 +300,7 @@ def _(housing_df, smf):
 
     fit_l3 = sm_poly.OLS(housing_df['MedHouseVal'], X_poly_df).fit()
     fit_l3.summary()
-    return PolynomialFeatures, X_poly, X_poly_df, fit_l3, poly, sm_poly
+    return
 
 
 @app.cell(hide_code=True)
@@ -321,12 +315,12 @@ def _(mo):
 
 
 @app.cell
-def _(sm):
+def _():
     import statsmodels.api as sm_fair
 
     fair_df = sm_fair.datasets.fair.load_pandas().data
     fair_df.info()
-    return fair_df, sm_fair
+    return (fair_df,)
 
 
 @app.cell
@@ -342,7 +336,7 @@ def _(fair_df, pd):
     others = pd.concat([fair_df.loc[:, fair_df.nunique() >= 7], fair_df[['age', 'children']]], axis=1)
     cat_fair_df = pd.concat([others, categoricals], axis=1)
     cat_fair_df.info()
-    return cat_fair_df, categoricals, others
+    return (cat_fair_df,)
 
 
 @app.cell
@@ -354,7 +348,7 @@ def _(cat_fair_df, sm):
 
     model1 = sm.OLS(y_fair, X_fair_const).fit()
     model1.summary()
-    return X_fair, X_fair_const, model1, y_fair
+    return (model1,)
 
 
 @app.cell
@@ -377,11 +371,11 @@ def _(cat_fair_df, model2, px):
         trendline='ols'
     )
     fig1.show()
-    return (fig1,)
+    return
 
 
 @app.cell
-def _(cat_fair_df, model2, px):
+def _(cat_fair_df, px):
     cat_fair_df['residuals_model2'] = cat_fair_df['affairs'] - cat_fair_df['predicted_model2']
 
     fig2 = px.scatter(
@@ -392,11 +386,11 @@ def _(cat_fair_df, model2, px):
     )
     fig2.add_hline(y=0, line_dash="dash", line_color="red")
     fig2.show()
-    return (fig2,)
+    return
 
 
 @app.cell
-def _(cat_fair_df, model1, model2, px):
+def _(model1, model2, px):
     import pandas as pd_coef
 
     model1_coefs = model1.params.reset_index()
@@ -422,7 +416,7 @@ def _(cat_fair_df, model1, model2, px):
         labels={'Variable': 'Predyktor', 'Coefficient': 'Współczynnik'}
     )
     fig3.show()
-    return combined_coefs, fig3, model1_coefs, model2_coefs, pd_coef
+    return
 
 
 if __name__ == "__main__":
