@@ -6,3 +6,6 @@ venv
 __pycache__
 __marimo__
 catboost_info
+
+# Solutions
+*_solved
