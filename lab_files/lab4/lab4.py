@@ -1,65 +1,186 @@
 import marimo
 
-__generated_with = "0.19.9"
+__generated_with = "0.20.4"
 app = marimo.App(width="medium")
 
 
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    # Lab 5: Selekcja cech dla modeli liniowych
+    # Lab 4: Selekcja cech dla modeli liniowych
 
-    Używamy zbioru danych **Hitters** z pakietu ISLR (dane baseballowe).
-    Zawiera statystyki graczy i ich zarobki (Salary).
+    Dopasowanie modelu liniowego do danych wymaga wyboru predyktorów. Gdy liczba
+    zmiennych jest duża, model dopasowany do wszystkich może **przeuczyć się**
+    (overfitting) i słabo generalizować na nowych danych — nawet jeśli wygląda
+    dobrze na danych uczących.
+
+    Podczas tego laboratorium poznamy trzy grupy metod radzenia sobie z tym problemem:
+
+    1. **Selekcja podzbiorów** — przeszukiwanie przestrzeni modeli i wybór
+       najlepszego podzbioru predyktorów (selekcja krokowa, best subset selection).
+    2. **Regularyzacja (shrinkage)** — karanie za duże współczynniki przez
+       dodanie członu penalizującego do funkcji straty (Ridge, Lasso, Elastic-Net).
+    3. **Redukcja wymiaru** — projekcja predyktorów na mniejszą przestrzeń
+       składowych (PCR — regresja na składowych głównych).
+
+    Wszystkie metody dobierają złożoność modelu tak, by zminimalizować błąd
+    generalizacji (czyli np. na zbiorze testowym), nie błąd treningowy.
     """)
     return
 
 
 @app.cell
 def _():
+    import warnings
+    import marimo as mo
     import numpy as np
+    np.Inf = np.inf  # nadpisanie dla zgodności z l0bnb
     import pandas as pd
-    import statsmodels.formula.api as smf
-    import statsmodels.api as sm
-    import itertools
-    from sklearn.feature_selection import SequentialFeatureSelector
-    from sklearn.linear_model import LinearRegression, Ridge, Lasso, ElasticNet
-    from sklearn.model_selection import train_test_split, cross_val_score
-    from sklearn.preprocessing import StandardScaler
-    from sklearn.metrics import mean_squared_error, r2_score
+    from functools import partial
     import plotly.express as px
     import plotly.graph_objects as go
-    from plotly.subplots import make_subplots
+    from statsmodels.api import OLS
+    import sklearn.model_selection as skm
+    import sklearn.linear_model as skl
+    from sklearn.preprocessing import StandardScaler
+    from sklearn.pipeline import Pipeline
+    from sklearn.decomposition import PCA
+    from sklearn.cross_decomposition import PLSRegression
+    from ISLP import load_data
+    from ISLP.models import ModelSpec as MS
+    from ISLP.models import (Stepwise,
+                             sklearn_selected,
+                             sklearn_selection_path)
+    from l0bnb import fit_path
+
     return (
-        ElasticNet,
-        Lasso,
-        LinearRegression,
-        Ridge,
+        MS,
+        OLS,
+        PCA,
+        Pipeline,
         StandardScaler,
-        cross_val_score,
+        Stepwise,
+        fit_path,
         go,
-        itertools,
-        make_subplots,
-        mean_squared_error,
+        load_data,
+        mo,
         np,
         pd,
         px,
-        r2_score,
-        sm,
-        smf,
-        train_test_split,
+        skl,
+        sklearn_selected,
+        sklearn_selection_path,
+        skm,
+        warnings,
     )
 
 
-@app.cell
-def _(pd):
-    from statsmodels.datasets import get_rdataset
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    ## Zbiór danych Hitters
 
-    hitters_df = get_rdataset("Hitters", package="ISLR").data
-    hitters_df = hitters_df.dropna()
-    print(f"Rozmiar zbioru po usunięciu NA: {hitters_df.shape}")
-    hitters_df.head()
-    return get_rdataset, hitters_df
+    Zbiór pochodzi z ligi baseballowej MLB i zawiera statystyki 322 graczy (po
+    usunięciu obserwacji z brakującą zmienną objaśnianą). Każda obserwacja opisuje
+    gracza 19 predyktorami: liczba uderzeń, zdobyte punkty, lata w lidze, itp.
+    Zmienną objaśnianą jest **Salary** — zarobki gracza w tysiącach dolarów za
+    sezon 1987.
+    """)
+    return
+
+
+@app.cell
+def _(load_data, np):
+    Hitters = load_data('Hitters')
+    print(f"Braki w Salary: {np.isnan(Hitters['Salary']).sum()}")
+    Hitters = Hitters.dropna()
+    print(f"Rozmiar zbioru po usunięciu NA: {Hitters.shape}")
+    Hitters.head()
+    return (Hitters,)
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    ## Selekcja krokowa (Forward Selection)
+
+    Selekcja krokowa do przodu zaczyna od pustego modelu i w każdym kroku dodaje
+    tę zmienną, która najbardziej poprawia kryterium dopasowania. Zatrzymuje się,
+    gdy żadna kolejna zmienna nie przynosi poprawy.
+
+    Używamy `ISLP.models.Stepwise` wraz z `sklearn_selected()`, które opakowuje
+    dopasowanie `OLS` w interfejs kompatybilny ze `sklearn`. Domyślnym kryterium
+    jest MSE — przy jego minimalizacji selekcja do przodu wybiera wszystkie 19
+    zmiennych (model pełny nigdy nie ma wyższego MSE na danych uczących).
+    """)
+    return
+
+
+@app.cell
+def _(Hitters, MS, OLS, Stepwise, np, sklearn_selected):
+    design = MS(Hitters.columns.drop('Salary')).fit(Hitters)
+    Y = np.array(Hitters['Salary'])
+
+    strategy = Stepwise.first_peak(design,
+                                   direction='forward',
+                                   max_terms=len(design.terms))
+
+    hitters_MSE = sklearn_selected(OLS, strategy)
+    hitters_MSE.fit(Hitters, Y)
+    print("Zmienne wybrane wg MSE (first_peak):")
+    print(hitters_MSE.selected_state_)
+    return Y, design
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    ## Ścieżka selekcji i walidacja krzyżowa
+
+    `sklearn_selection_path()` przechodzi całą ścieżkę selekcji krokowej i dla
+    każdego kroku (liczby zmiennych) ocenia model przez walidację krzyżową.
+    Dzięki temu można wybrać liczbę zmiennych minimalizującą błąd generalizacji,
+    a nie błąd treningowy.
+
+    Kluczowa zasada: selekcja zmiennych musi odbywać się **wyłącznie na danych
+    uczących** w każdym foldzie — w przeciwnym razie ocena za pomocą walidacji krzyżowej (CV) jest optymistycznie
+    zaniżona.
+    """)
+    return
+
+
+@app.cell
+def _(Hitters, OLS, Stepwise, Y, design, go, np, sklearn_selection_path, skm):
+    strategy_full = Stepwise.fixed_steps(design,
+                                         len(design.terms),
+                                         direction='forward')
+    full_path = sklearn_selection_path(OLS, strategy_full)
+    full_path.fit(Hitters, Y)
+    Yhat_in = full_path.predict(Hitters)
+
+    insample_mse = ((Yhat_in - Y[:, None]) ** 2).mean(0)
+    n_steps = insample_mse.shape[0]
+
+    K = 5
+    kfold = skm.KFold(K, random_state=0, shuffle=True)
+    Yhat_cv = skm.cross_val_predict(full_path, Hitters, Y, cv=kfold)
+
+    cv_mse = []
+    for _, test_idx in kfold.split(Y):
+        errors = (Yhat_cv[test_idx] - Y[test_idx, None]) ** 2
+        cv_mse.append(errors.mean(0))
+    cv_mse = np.array(cv_mse).T
+
+    steps = np.arange(n_steps)
+    fig_path = go.Figure()
+    fig_path.add_scatter(x=steps, y=insample_mse, mode='lines', name='Próba ucząca',
+                         line=dict(color='black'))
+    fig_path.add_scatter(x=steps, y=cv_mse.mean(1), mode='lines+markers', name='CV (5-krotna)',
+                         error_y=dict(array=cv_mse.std(1) / np.sqrt(K)), line=dict(color='red'))
+    fig_path.update_layout(xaxis_title='Liczba kroków selekcji do przodu', yaxis_title='MSE',
+                           title='Ścieżka selekcji krokowej — MSE treningowe vs CV')
+    fig_path.show()
+    return K, kfold
 
 
 @app.cell(hide_code=True)
@@ -67,185 +188,27 @@ def _(mo):
     mo.md(r"""
     ## Wybór najlepszego podzbioru (Best Subset Selection)
 
-    W R używano funkcji `regsubsets()` z pakietu `leaps`. W Pythonie nie ma
-    bezpośredniego odpowiednika (biblioteka mlxtend oferuje exhaustive search,
-    ale jest bardzo wymagająca obliczeniowo). Implementujemy funkcjonalność
-    ręcznie dla małej liczby predyktorów.
-
-    Cechy selekcjonowane są niezależnie dla każdej liczby predyktorów — szukamy
-    modelu o najlepszym dopasowaniu ($R^2$) dla każdej liczby zmiennych.
+    Selekcja krokowa jest zachłanną heurystyką — nie gwarantuje znalezienia
+    globalnie najlepszego podzbioru. Pakiet `l0bnb` szuka optymalnych podzbiorów
+    efektywnie, produkując **ścieżkę rozwiązań** parametryzowaną przez karę
+    $\lambda_0$ za liczbę niezerowych współczynników.
     """)
     return
 
 
 @app.cell
-def _(hitters_df, itertools, smf):
-    X_cols = hitters_df.columns.drop('Salary')
-    nvmax = 3  # Dla demonstracji — pełne wyszukiwanie dla 19 predyktorów byłoby bardzo wolne
+def _(Hitters, MS, Y, fit_path, np):
+    D = MS(Hitters.columns.drop('Salary')).fit_transform(Hitters)
+    D = D.drop('intercept', axis=1)
+    X_bs = np.asarray(D)
 
-    results = []
-    for k in range(1, nvmax + 1):
-        for combo in itertools.combinations(X_cols, k):
-            formula = 'Salary ~ ' + ' + '.join(combo)
-            try:
-                model = smf.ols(formula, data=hitters_df).fit()
-                results.append({
-                    'n_vars': k,
-                    'vars': combo,
-                    'rsquared': model.rsquared,
-                    'bic': model.bic,
-                    'aic': model.aic,
-                })
-            except Exception:
-                pass
+    bs_path = fit_path(X_bs, Y, max_nonzeros=X_bs.shape[1])
 
-    # Najlepsze modele dla każdej liczby predyktorów (według R²)
-    best_models = {}
-    for n in range(1, nvmax + 1):
-        subset = [r for r in results if r['n_vars'] == n]
-        best = max(subset, key=lambda x: x['rsquared'])
-        best_models[n] = best
-
-    for nvar, mdl in best_models.items():
-        print(f"{nvar} zmiennych: {mdl['vars']}, BIC: {mdl['bic']:.1f}, R²: {mdl['rsquared']:.3f}")
-    return X_cols, best, best_models, combo, formula, k, mdl, model, n, nvar, nvmax, results, subset
-
-
-@app.cell(hide_code=True)
-def _(mo):
-    mo.md(r"""
-    **Zadanie**: Wykonaj podobną analizę dla kryteriów $C_p$ i poprawionego $R^2$.
-    Pamiętaj, że poprawione $R^2$ powinno być **zmaksymalizowane**.
-
-    ## Selekcja krokowa (Sequential Feature Selection)
-
-    W scikit-learn dostępna jest klasa `SequentialFeatureSelector` — odpowiednik
-    `regsubsets(method="forward")` / `regsubsets(method="backward")` z R.
-    """)
-    return
-
-
-@app.cell
-def _(LinearRegression, SequentialFeatureSelector, hitters_df, pd):
-    X_hitters = hitters_df.drop('Salary', axis=1)
-    y_hitters = hitters_df['Salary']
-
-    # Zmienne kategoryczne kodujemy jako dummy
-    X_hitters_encoded = pd.get_dummies(X_hitters, drop_first=True)
-
-    model_lr = LinearRegression()
-
-    # Selekcja do przodu
-    sfs_forward = SequentialFeatureSelector(
-        model_lr,
-        n_features_to_select=5,
-        direction='forward',
-        scoring='neg_mean_squared_error',
-        cv=5
-    )
-    sfs_forward.fit(X_hitters_encoded, y_hitters)
-
-    selected_forward = X_hitters_encoded.columns[sfs_forward.get_support()].tolist()
-    print("Selekcja do przodu (5 zmiennych):", selected_forward)
-
-    # Selekcja wstecz
-    sfs_backward = SequentialFeatureSelector(
-        model_lr,
-        n_features_to_select=5,
-        direction='backward',
-        scoring='neg_mean_squared_error',
-        cv=5
-    )
-    sfs_backward.fit(X_hitters_encoded, y_hitters)
-
-    selected_backward = X_hitters_encoded.columns[sfs_backward.get_support()].tolist()
-    print("Selekcja wstecz (5 zmiennych):", selected_backward)
-    return (
-        X_hitters,
-        X_hitters_encoded,
-        model_lr,
-        selected_backward,
-        selected_forward,
-        sfs_backward,
-        sfs_forward,
-        y_hitters,
-    )
-
-
-@app.cell
-def _(X_hitters_encoded, sfs_forward):
-    # SFS jest transformerem — stosujemy go na danych
-    X_selected = X_hitters_encoded.loc[:, sfs_forward.get_support()]
-    X_selected.head()
-    return (X_selected,)
-
-
-@app.cell(hide_code=True)
-def _(mo):
-    mo.md(r"""
-    **Zadanie**: Które podzbiory predyktorów są optymalne według kryteriów BIC,
-    $C_p$ i poprawionego $R^2$? Czy pokrywają się z wynikami selekcji krokowej?
-
-    ## Wybór modelu metodą zbioru walidacyjnego
-
-    Ważne: wszystkie aspekty dopasowania modelu — włącznie z selekcją zmiennych —
-    muszą być przeprowadzone wyłącznie na **zbiorze uczącym**.
-    """)
-    return
-
-
-@app.cell
-def _(LinearRegression, X_hitters_encoded, mean_squared_error, np, train_test_split, y_hitters):
-    X_train_h, X_test_h, y_train_h, y_test_h = train_test_split(
-        X_hitters_encoded, y_hitters, test_size=0.5, random_state=1
-    )
-
-    # Dla każdej możliwej liczby zmiennych (przy selekcji krokowej) szacujemy MSE testowe
-    from sklearn.feature_selection import SequentialFeatureSelector as SFS2
-
-    val_errors = []
-    n_features_range = range(1, min(20, X_hitters_encoded.shape[1]) + 1)
-
-    for n_feat in n_features_range:
-        sfs_val = SFS2(LinearRegression(), n_features_to_select=n_feat,
-                       direction='forward', scoring='neg_mean_squared_error', cv=3)
-        sfs_val.fit(X_train_h, y_train_h)
-        X_train_sel = X_train_h.loc[:, sfs_val.get_support()]
-        X_test_sel = X_test_h.loc[:, sfs_val.get_support()]
-        lr_val = LinearRegression().fit(X_train_sel, y_train_h)
-        pred = lr_val.predict(X_test_sel)
-        val_errors.append(mean_squared_error(y_test_h, pred))
-
-    optimal_n = np.argmin(val_errors) + 1
-    print(f"Optymalna liczba zmiennych: {optimal_n}, MSE testowe: {val_errors[optimal_n-1]:.0f}")
-    return (
-        SFS2,
-        X_test_h,
-        X_test_sel,
-        X_train_h,
-        X_train_sel,
-        lr_val,
-        n_feat,
-        n_features_range,
-        optimal_n,
-        pred,
-        sfs_val,
-        val_errors,
-        y_test_h,
-        y_train_h,
-    )
-
-
-@app.cell
-def _(go, n_features_range, optimal_n, val_errors):
-    fig_val = go.Figure()
-    fig_val.add_scatter(x=list(n_features_range), y=val_errors, mode='lines+markers', name='Val MSE')
-    fig_val.add_vline(x=optimal_n, line_dash='dash', line_color='red',
-                      annotation_text=f'Optimum: {optimal_n}')
-    fig_val.update_layout(title='MSE testowe vs liczba zmiennych (metoda walidacyjna)',
-                          xaxis_title='Liczba zmiennych', yaxis_title='MSE')
-    fig_val.show()
-    return (fig_val,)
+    print("Przykładowe kroki ścieżki best subset:")
+    for step in bs_path[:5]:
+        n_nonzero = int((step['B'] != 0).sum())
+        print(f"  lambda_0={step['lambda_0']:.4f}, niezerowych współczynników: {n_nonzero}")
+    return D, X_bs
 
 
 @app.cell(hide_code=True)
@@ -253,189 +216,384 @@ def _(mo):
     mo.md(r"""
     ## Regularyzacja
 
-    ### Regresja grzbietowa (Ridge) i Lasso
+    Zamiast wybierać podzbiór zmiennych, metody regularyzacji **kurczą**
+    współczynniki w kierunku zera, dodając do funkcji straty człon penalizujący
+    ich wielkość. Większy parametr regularyzacji $\lambda$ = silniejsze kurczenie.
 
-    Obie metody dostępne w `sklearn.linear_model`. Argument `alpha` (scikit-learn)
-    odpowiada $\lambda$ z wykładu — większe `alpha` = silniejsza regularyzacja.
+    Do dopasowania Ridge i Lasso używamy `skl.ElasticNet` z parametrem `l1_ratio`:
+    - `l1_ratio=0` → Ridge (penalizacja $\ell_2$, współczynniki kurczą się, ale nie
+      zerują)
+    - `l1_ratio=1` → Lasso (penalizacja $\ell_1$, współczynniki mogą być dokładnie
+      zero — jednoczesna selekcja zmiennych)
 
-    scikit-learn domyślnie standaryzuje zmienne w Ridge/Lasso, odpowiednio do
-    zachowania `glmnet()` w R.
+    Modele regularyzowane są wrażliwe na skalę predyktorów — standaryzujemy je
+    za pomocą `StandardScaler` w pipeline'ie.
+
+    ### Interpretacja geometryczna regularyzacji
+
+    Regularyzacja ma elegancką interpretację geometryczną: minimalizujemy RSS
+    przy ograniczeniu, że współczynniki leżą wewnątrz **obszaru ograniczeń**
+    wyznaczonego przez normę. Kształt obszaru zależy od metody.
+
+    Konturami w tle są poziomice RSS — elipsy skupione wokół estymatora MNK $\hat\beta$ (czyli najlepiej dopasowanej wartości parametru).
+    Kolorowe linie to granice obszarów ograniczeń dla każdej metody; kolorowe
+    punkty to odpowiadające im estymaty regularyzowane.
+
+    Suwak $\lambda$ odpowiada za siłę regularyzacji a suwak $l1\_ratio$ za wagi przy zastosowanych metrykach. Komórkę z kodem do wizualizacji poniżej można wykonać i schować - przy zmianie parametrów na suwakach wykres się zaktualizuje.
     """)
     return
 
 
 @app.cell
-def _(Lasso, Ridge, StandardScaler, X_test_h, X_train_h, mean_squared_error, np, r2_score, y_test_h, y_train_h):
-    alphas = [0.001, 0.01, 0.1, 1, 10, 100]
+def _(mo):
+    lambda_slider = mo.ui.slider(0.0, 3.0, value=0.0, step=0.25,
+                                 label="λ (siła regularyzacji)")
+    l1_ratio_slider = mo.ui.slider(0.0, 1.0, value=0.5, step=0.1,
+                                   label="l1_ratio (0 = Ridge, 1 = Lasso)")
+    mo.vstack([lambda_slider, l1_ratio_slider])
+    return l1_ratio_slider, lambda_slider
 
-    scaler = StandardScaler()
-    X_train_scaled = scaler.fit_transform(X_train_h)
-    X_test_scaled = scaler.transform(X_test_h)
 
-    ridge_results = []
-    lasso_results = []
+@app.cell
+def _(go, l1_ratio_slider, lambda_slider, np):
+    lam = lambda_slider.value
+    alpha = l1_ratio_slider.value
+    b1_hat, b2_hat = 2.2, 1.6  # estymata MNK
 
-    for alpha_val in alphas:
-        ridge = Ridge(alpha=alpha_val)
-        ridge.fit(X_train_scaled, y_train_h)
-        y_pred_ridge = ridge.predict(X_test_scaled)
-        ridge_results.append({
-            'alpha': alpha_val,
-            'mse': mean_squared_error(y_test_h, y_pred_ridge),
-            'r2': r2_score(y_test_h, y_pred_ridge),
-            'coef_norm': np.linalg.norm(ridge.coef_)
-        })
+    def reg_sol(b):
+        return np.sign(b) * np.maximum(np.abs(b) - lam * alpha, 0) / (1 + lam * (1 - alpha))
 
-        lasso = Lasso(alpha=alpha_val, max_iter=10000)
-        lasso.fit(X_train_scaled, y_train_h)
-        y_pred_lasso = lasso.predict(X_test_scaled)
-        lasso_results.append({
-            'alpha': alpha_val,
-            'mse': mean_squared_error(y_test_h, y_pred_lasso),
-            'r2': r2_score(y_test_h, y_pred_lasso),
-            'coef_norm': np.linalg.norm(lasso.coef_),
-            'n_nonzero': np.sum(lasso.coef_ != 0)
-        })
+    b_sol = np.array([reg_sol(b1_hat), reg_sol(b2_hat)])
 
-    print("Ridge:")
-    for r in ridge_results:
-        print(f"  alpha={r['alpha']}: MSE={r['mse']:.0f}, R²={r['r2']:.3f}, ||coef||={r['coef_norm']:.1f}")
+    # Wartość funkcji kary w punkcie regularyzowanym -> rozmiar obszaru ograniczeń
+    def pen_val(b):
+        return alpha * np.sum(np.abs(b)) + (1 - alpha) / 2 * np.sum(b ** 2)
 
-    print("\nLasso:")
-    for r in lasso_results:
-        print(f"  alpha={r['alpha']}: MSE={r['mse']:.0f}, R²={r['r2']:.3f}, niezerowych cech: {r['n_nonzero']}")
-    return (
-        X_test_scaled,
-        X_train_scaled,
-        alpha_val,
-        alphas,
-        lasso,
-        lasso_results,
-        r,
-        ridge,
-        ridge_results,
-        scaler,
-        y_pred_lasso,
-        y_pred_ridge,
+    # Granica obszaru ograniczeń:
+    def ball_boundary(s, n=500):
+        angles = np.linspace(0, 2 * np.pi, n)
+        c, ss = np.cos(angles), np.sin(angles)
+        L1f = np.abs(c) + np.abs(ss)
+        if alpha < 1.0:
+            a_c = (1 - alpha) / 2
+            b_c = alpha * L1f
+            disc = np.maximum(b_c ** 2 + 4 * a_c * s, 0)
+            r = (-b_c + np.sqrt(disc)) / (2 * a_c)
+        else:
+            r = s / L1f
+        return r * c, r * ss
+
+    s = pen_val(b_sol)
+    bx, by = ball_boundary(s) if s > 0 else (np.array([0.0]), np.array([0.0]))
+
+    if alpha == 0.0:
+        label = 'Ridge (l1_ratio=0)'
+        color = 'royalblue'
+    elif alpha == 1.0:
+        label = 'Lasso (l1_ratio=1)'
+        color = 'crimson'
+    else:
+        label = f'Elastic-Net (l1_ratio={alpha:.2f})'
+        color = 'seagreen'
+
+    # Poziomice RSS
+    b1g = np.linspace(-1.2, 3.8, 300)
+    b2g = np.linspace(-1.2, 3.8, 300)
+    B1, B2 = np.meshgrid(b1g, b2g)
+    RSS = (B1 - b1_hat) ** 2 + 0.6 * (B1 - b1_hat) * (B2 - b2_hat) + (B2 - b2_hat) ** 2
+
+    fig_geo = go.Figure()
+    fig_geo.add_trace(go.Contour(
+        x=b1g, y=b2g, z=RSS,
+        contours=dict(start=0.3, end=9.0, size=1.0, coloring='none'),
+        line=dict(color='lightgray', width=1),
+        showscale=False, hoverinfo='skip', name='RSS'
+    ))
+    fig_geo.add_scatter(x=bx, y=by, mode='lines', name=label,
+                        line=dict(color=color, width=2.5))
+    fig_geo.add_scatter(x=[b_sol[0]], y=[b_sol[1]], mode='markers',
+                        marker=dict(size=11, color=color, symbol='circle'),
+                        showlegend=False,
+                        hovertemplate=f'{label}<br>β₁={b_sol[0]:.3f}, β₂={b_sol[1]:.3f}')
+    fig_geo.add_scatter(x=[b1_hat], y=[b2_hat], mode='markers', name='MNK (β̂)',
+                        marker=dict(size=14, color='black', symbol='star'))
+    fig_geo.add_hline(y=0, line_width=0.8, line_color='black')
+    fig_geo.add_vline(x=0, line_width=0.8, line_color='black')
+    fig_geo.update_layout(
+        title=f'Geometria regularyzacji — λ = {lam:.2f}, l1_ratio = {alpha:.2f}',
+        xaxis=dict(title='β₁', range=[-1.5, 3.5]),
+        yaxis=dict(title='β₂', range=[-1.5, 3.5]),
+        width=640, height=640,
+        legend=dict(x=0.02, y=0.98),
     )
+    fig_geo.show()
+    return
 
 
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    ### Cross-validation dla optymalnego alpha
-
-    W R: `cv.glmnet()`. W scikit-learn: `RidgeCV` lub `LassoCV`.
+    ### Regresja grzbietowa (Ridge) — ścieżka współczynników
     """)
     return
 
 
 @app.cell
-def _(X_test_scaled, X_train_scaled, mean_squared_error, np, y_test_h, y_train_h):
-    from sklearn.linear_model import RidgeCV, LassoCV
+def _(D, StandardScaler, X_bs, Y, np, pd, px, skl, warnings):
+    warnings.simplefilter("ignore")
+    scaler = StandardScaler(with_mean=True, with_std=True)
+    Xs = scaler.fit_transform(X_bs)
 
-    alphas_cv = np.logspace(-3, 5, 100)
+    lambdas = 10 ** np.linspace(8, -2, 100) / Y.std()
 
-    ridge_cv = RidgeCV(alphas=alphas_cv, cv=10)
-    ridge_cv.fit(X_train_scaled, y_train_h)
-    print(f"Ridge optymalne alpha: {ridge_cv.alpha_:.4f}")
-    y_pred_ridge_cv = ridge_cv.predict(X_test_scaled)
-    print(f"Ridge MSE (opt alpha): {mean_squared_error(y_test_h, y_pred_ridge_cv):.0f}")
+    soln_array = skl.ElasticNet.path(Xs, Y, l1_ratio=0., alphas=lambdas)[1]
+    soln_path = pd.DataFrame(soln_array.T,
+                             columns=D.columns,
+                             index=-np.log(lambdas))
+    soln_path.index.name = '-log(lambda)'
 
-    lasso_cv = LassoCV(alphas=alphas_cv, cv=10, max_iter=10000)
-    lasso_cv.fit(X_train_scaled, y_train_h)
-    print(f"\nLasso optymalne alpha: {lasso_cv.alpha_:.4f}")
-    y_pred_lasso_cv = lasso_cv.predict(X_test_scaled)
-    print(f"Lasso MSE (opt alpha): {mean_squared_error(y_test_h, y_pred_lasso_cv):.0f}")
-    print(f"Lasso niezerowych cech: {np.sum(lasso_cv.coef_ != 0)}")
-    return (
-        LassoCV,
-        RidgeCV,
-        alphas_cv,
-        lasso_cv,
-        ridge_cv,
-        y_pred_lasso_cv,
-        y_pred_ridge_cv,
-    )
+    fig_ridge = px.line(soln_path, title='Ridge — ścieżka współczynników',
+                        labels={'value': 'Standaryzowane współczynniki',
+                                'variable': 'Zmienna'})
+    fig_ridge.show()
+    return lambdas, scaler
 
 
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    ### Ścieżka regularyzacji Lasso — które cechy są zerowane?
+    Przy małym $\lambda$ (prawy koniec osi) współczynniki zbliżają się do estymaty
+    MNK. Przy dużym $\lambda$ (lewy koniec) wszystkie kurczą się do zera, lecz
+    **żaden nie osiąga dokładnie zera** — Ridge nie zeruje współczynników.
+
+    ### Ridge — dobór $\lambda$ przez walidację krzyżową
     """)
     return
 
 
 @app.cell
-def _(Lasso, X_hitters_encoded, X_test_scaled, X_train_scaled, go, make_subplots, np, y_train_h):
-    feature_names = X_hitters_encoded.columns.tolist()[:5]  # Pokazujemy pierwsze 5 cech
-    alphas_path = np.logspace(-3, 4, 50)
+def _(Pipeline, X_bs, Y, kfold, lambdas, np, scaler, skl, warnings):
+    warnings.simplefilter("ignore")
+    ridgeCV = skl.ElasticNetCV(alphas=lambdas, l1_ratio=0, cv=kfold)
+    pipeCV_ridge = Pipeline(steps=[('scaler', scaler), ('ridge', ridgeCV)])
+    pipeCV_ridge.fit(X_bs, Y)
+    tuned_ridge = pipeCV_ridge.named_steps['ridge']
 
-    ridge_coefs_path = []
-    lasso_coefs_path = []
-
-    from sklearn.linear_model import Ridge as Ridge2
-
-    for a in alphas_path:
-        r2_model = Ridge2(alpha=a)
-        r2_model.fit(X_train_scaled, y_train_h)
-        ridge_coefs_path.append(r2_model.coef_[:5])
-
-        l_model = Lasso(alpha=a, max_iter=10000)
-        l_model.fit(X_train_scaled, y_train_h)
-        lasso_coefs_path.append(l_model.coef_[:5])
-
-    fig_path = make_subplots(rows=1, cols=2,
-                              subplot_titles=("Ridge - ścieżka współczynników",
-                                              "Lasso - ścieżka współczynników"))
-
-    for i, feat in enumerate(feature_names):
-        fig_path.add_trace(
-            go.Scatter(x=alphas_path, y=[c[i] for c in ridge_coefs_path],
-                       mode='lines', name=feat),
-            row=1, col=1
-        )
-        fig_path.add_trace(
-            go.Scatter(x=alphas_path, y=[c[i] for c in lasso_coefs_path],
-                       mode='lines', name=feat, showlegend=False),
-            row=1, col=2
-        )
-
-    fig_path.update_xaxes(type='log', title_text='Alpha')
-    fig_path.update_yaxes(title_text='Wartość współczynnika')
-    fig_path.update_layout(title='Wpływ regularyzacji na współczynniki modelu')
-    fig_path.show()
-    return (
-        Ridge2,
-        a,
-        feat,
-        feature_names,
-        fig_path,
-        i,
-        l_model,
-        lasso_coefs_path,
-        r2_model,
-        ridge_coefs_path,
-        alphas_path,
-    )
+    print(f"Ridge optymalne lambda: {tuned_ridge.alpha_:.4f}")
+    print(f"Ridge minimalne CV MSE: {np.min(tuned_ridge.mse_path_.mean(1)):.0f}")
+    print(f"Liczba niezerowych współczynników: {(tuned_ridge.coef_ != 0).sum()} / {len(tuned_ridge.coef_)}")
+    return (tuned_ridge,)
 
 
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    ## Elastic-Net
+    CV MSE w funkcji $-\log(\lambda)$ — pionowa linia wskazuje optymalne $\lambda$.
+    """)
+    return
 
-    Elastic-Net to ważona suma penalizacji Ridge i Lasso:
-    $$
-    \text{penalizacja} = \alpha \cdot \text{Lasso} + (1 - \alpha) \cdot \text{Ridge}
-    $$
 
-    W scikit-learn: `ElasticNet(alpha=..., l1_ratio=...)` gdzie `l1_ratio` odpowiada
-    wagowaniu między Lasso (l1_ratio=1) a Ridge (l1_ratio=0).
+@app.cell
+def _(K, go, lambdas, np, tuned_ridge):
+    neg_log_lam = -np.log(lambdas)
+    fig_ridgeCV = go.Figure()
+    fig_ridgeCV.add_scatter(x=neg_log_lam, y=tuned_ridge.mse_path_.mean(1),
+                            error_y=dict(array=tuned_ridge.mse_path_.std(1) / np.sqrt(K)),
+                            mode='lines', name='CV MSE')
+    fig_ridgeCV.add_vline(x=-np.log(tuned_ridge.alpha_), line_dash='dash',
+                          annotation_text=f'opt λ={tuned_ridge.alpha_:.4f}')
+    fig_ridgeCV.update_layout(xaxis_title='-log(λ)', yaxis_title='CV MSE',
+                              title='Ridge — CV MSE vs λ')
+    fig_ridgeCV.show()
+    return
 
-    **Zadanie**: Dopasuj model Elastic-Net dla wybranej wartości `l1_ratio` i
-    przeprowadź podobną analizę jak dla Lasso.
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    ### Lasso
+
+    Lasso (`l1_ratio=1`) zeruje współczynniki mniej istotnych zmiennych — wykonuje
+    jednocześnie regularyzację i selekcję zmiennych. Poniżej dopasowujemy Lasso
+    z doborem $\lambda$ przez CV, a następnie wyświetlamy ścieżkę współczynników.
+    """)
+    return
+
+
+@app.cell
+def _(D, Pipeline, X_bs, Y, kfold, np, pd, scaler, skl):
+    lassoCV = skl.ElasticNetCV(n_alphas=100, l1_ratio=1, cv=kfold)
+    pipeCV_lasso = Pipeline(steps=[('scaler', scaler), ('lasso', lassoCV)])
+    pipeCV_lasso.fit(X_bs, Y)
+    tuned_lasso = pipeCV_lasso.named_steps['lasso']
+
+    print(f"Lasso optymalne lambda: {tuned_lasso.alpha_:.4f}")
+    print(f"Lasso minimalne CV MSE: {np.min(tuned_lasso.mse_path_.mean(1)):.0f}")
+    print(f"Liczba niezerowych współczynników: {(tuned_lasso.coef_ != 0).sum()} / {len(tuned_lasso.coef_)}")
+
+    lasso_lambdas, lasso_soln = skl.Lasso.path(scaler.transform(X_bs), Y, l1_ratio=1, n_alphas=100)[:2]
+    lasso_path_df = pd.DataFrame(lasso_soln.T, columns=D.columns, index=-np.log(lasso_lambdas))
+    lasso_path_df.index.name = '-log(lambda)'
+    return (lasso_path_df,)
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    Ścieżka współczynników Lasso — przy rosnącej regularyzacji (malejące
+    $-\log(\lambda)$, lewy koniec) kolejne współczynniki zerują się dokładnie.
+    """)
+    return
+
+
+@app.cell
+def _(lasso_path_df, px):
+    fig_lasso = px.line(lasso_path_df, title='Lasso — ścieżka współczynników',
+                        labels={'value': 'Standaryzowane współczynniki',
+                                'variable': 'Zmienna'})
+    fig_lasso.show()
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    ## Regresja składowych głównych (PCR)
+
+    PCR redukuje przestrzeń predyktorów do $M$ **składowych głównych** —
+    kombinacji liniowych predyktorów o maksymalnej wariancji — a następnie
+    dopasowuje regresję liniową w tej zmniejszonej przestrzeni. Zamiast selekcji
+    zmiennych mamy redukcję wymiaru: wszystkie predyktory uczestniczą w modelu,
+    lecz przez pryzmat ich głównych kierunków zmienności.
+
+    Liczbę składowych $M$ dobieramy przez CV.
+    """)
+    return
+
+
+@app.cell
+def _(PCA, Pipeline, StandardScaler, X_bs, Y, kfold, skl, skm):
+    pca = PCA(n_components=2)
+    linreg = skl.LinearRegression()
+    scaler_pcr = StandardScaler(with_mean=True, with_std=True)
+    pipe_pcr = Pipeline([('scaler', scaler_pcr), ('pca', pca), ('linreg', linreg)])
+
+    param_grid_pcr = {'pca__n_components': range(1, 20)}
+    grid_pcr = skm.GridSearchCV(pipe_pcr,
+                                param_grid_pcr,
+                                cv=kfold,
+                                scoring='neg_mean_squared_error')
+    grid_pcr.fit(X_bs, Y)
+
+    print(f"Optymalna liczba składowych: {grid_pcr.best_params_['pca__n_components']}")
+    print(f"PCR minimalne CV MSE: {-grid_pcr.best_score_:.0f}")
+    return (grid_pcr,)
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    CV MSE w funkcji liczby składowych głównych.
+    """)
+    return
+
+
+@app.cell
+def _(K, go, grid_pcr, np):
+    n_comp = list(range(1, 20))
+    fig_pcr = go.Figure()
+    fig_pcr.add_scatter(x=n_comp,
+                        y=-grid_pcr.cv_results_['mean_test_score'],
+                        error_y=dict(array=grid_pcr.cv_results_['std_test_score'] / np.sqrt(K)),
+                        mode='lines+markers')
+    fig_pcr.update_layout(xaxis_title='Liczba składowych głównych', yaxis_title='CV MSE',
+                          title='PCR — CV MSE')
+    fig_pcr.show()
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    ---
+
+    # Zadania
+
+    We wszystkich zadaniach pracujemy na zbiorze Hitters i macierzy predyktorów
+    `X_bs` / wektorze odpowiedzi `Y` przygotowanych wcześniej.
+
+    ## Zadanie 1 — porównanie Ridge i Lasso na zbiorze testowym
+
+    Podziel zbiór na część uczącą (80%) i testową (20%) za pomocą
+    `skm.train_test_split`.
+    Dopasuj **wyłącznie na danych uczących** Ridge i Lasso z doborem $\lambda$
+    przez CV (użyj tego samego `kfold` co wcześniej — obiekt `KFold` to tylko
+    strategia podziału, wywoła `.split(X_train)` na mniejszym zbiorze, więc
+    nie ma wycieku danych). Oblicz MSE na zbiorze testowym i zestaw je z CV MSE
+    z danych uczących.
+
+    *Pytanie do przemyślenia:* czy CV MSE dobrze przewiduje błąd testowy?
+    Dlaczego może być zawyżone lub zaniżone?
+    """)
+    return
+
+
+@app.cell
+def _():
+    # Uzupełnij kod poniżej
+    ...
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    ## Zadanie 2 — regresja składowych ukrytych (PLS)
+
+    Przeczytaj o metodzie **PLS** (`PLSRegression`) i dopasuj model z doborem optymalnej liczby składowych
+    przez walidację krzyżową — analogicznie do PCR powyżej. Narysuj CV MSE
+    w funkcji liczby składowych **na tym samym wykresie co PCR** i porównaj
+    wyniki: która metoda potrzebuje mniej składowych? Która daje niższe minimum?
+
+    Wskazówka: użyj tego samego `kfold` i `grid_pcr` co w sekcji PCR.
+    """)
+    return
+
+
+@app.cell
+def _():
+    # Uzupełnij kod poniżej
+    ...
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    ## Zadanie 3 — selekcja krokowa z kryterium $C_p$
+
+    Wraz ze wzrostem ilości predyktorów MSE na zbiorze treningowym jest zawsze tylko lepsze. Zastosujemy zamiast niego kryterium oceny z penalizacją ilości parametrów (jak AIC lub BIC).
+
+    Zaimplementuj $C_p$ jako kryterium oceny i użyj go do selekcji krokowej
+    zamiast MSE. Kryterium $C_p$ jest zdefiniowane jako:
+
+    $$C_p = \frac{1}{n}\left(\text{RSS} + 2p\hat{\sigma}^2\right)$$
+
+    gdzie $p$ to liczba predyktorów w bieżącym modelu, a $\hat{\sigma}^2$ to
+    wariancja reszt z modelu pełnego (OLS na wszystkich predyktorach):
+
+    ```python
+    sigma2 = OLS(Y, design.fit_transform(Hitters)).fit().mse_resid
+    ```
+
+    Wskazówka: zdefiniuj `nCp(sigma2, estimator, X, Y)` zwracające ujemne $C_p$
+    — w treści funkcji użyj `X.shape` do wyznaczenia $p$ (`sklearn_selected` z ISLP
+    przekazuje do scorera tylko kolumny aktualnie wybranych predyktorów, nie cały
+    `X_bs`); użyj `partial()`
+    do zamrożenia `sigma2`; przekaż kryterium do `sklearn_selected()` jako
+    argument `scoring`.
+
+    Porównaj zestaw wybranych zmiennych z wynikiem selekcji wg MSE z początku labu.
     """)
     return
 
