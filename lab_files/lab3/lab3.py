@@ -7,7 +7,7 @@ app = marimo.App(width="medium")
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    # Lab 4: Uogólnione modele liniowe (GLM)
+    # Lab 3: Uogólnione modele liniowe (GLM)
 
     W statystyce dopasowujemy model do zaobserwowanych danych. W regresji liniowej
     zakładamy liniową kombinację predyktorów. Nie wszystkie zmienne objaśniane
@@ -22,23 +22,27 @@ def _():
     import numpy as np
     import marimo as mo
     import pandas as pd
+    from pathlib import Path
+    import plotly.express as px
     import statsmodels.api as sm
     import statsmodels.formula.api as smf
+    from scipy.stats import poisson, logistic
     from sklearn.model_selection import train_test_split
-    from sklearn.metrics import (classification_report, confusion_matrix,
-                                  accuracy_score)
+    from sklearn.metrics import classification_report, confusion_matrix, accuracy_score
     from sklearn.discriminant_analysis import LinearDiscriminantAnalysis, QuadraticDiscriminantAnalysis
     from sklearn.neighbors import KNeighborsClassifier
-    from scipy.stats import poisson
-    import plotly.express as px
+    from statsmodels.miscmodels.ordinal_model import OrderedModel
 
     return (
         KNeighborsClassifier,
         LinearDiscriminantAnalysis,
+        OrderedModel,
+        Path,
         QuadraticDiscriminantAnalysis,
         accuracy_score,
         classification_report,
         confusion_matrix,
+        logistic,
         mo,
         np,
         pd,
@@ -87,7 +91,7 @@ def _(mo):
 @app.cell
 def _(beta0_slider, beta1_slider, n_slider, np, pd, px, sm):
     rng = np.random.default_rng(123)
-    X_demo = rng.normal(size=n_slider.value)
+    X_demo = rng.normal(size=n_slider.value)  # ty:ignore[no-matching-overload]
     log_odds = beta0_slider.value + beta1_slider.value * X_demo
     p_demo = 1 / (1 + np.exp(-log_odds))
     Y_demo = rng.binomial(1, p_demo)
@@ -149,7 +153,7 @@ def _(sm, train_data):
     y_titanic = train_data['Survived']
 
     titanic_model = sm.GLM(y_titanic, X_titanic, family=sm.families.Binomial()).fit()
-    titanic_model.summary()
+    print(titanic_model.summary())
     return (titanic_model,)
 
 
@@ -199,8 +203,7 @@ def _(mo):
 
 
 @app.cell
-def _(pd):
-    from pathlib import Path
+def _(Path, pd):
     DATA_DIR = Path(__file__).parents[2] / "data"
     kicks_df = pd.read_csv(DATA_DIR / 'kicks.csv', index_col=0)
     kicks_df.head()
@@ -248,7 +251,7 @@ def _(kicks_long, pd, sm):
         sm.add_constant(kicks_model[['battalion', 'year']]),
         family=sm.families.Poisson()
     ).fit()
-    poisson_model.summary()
+    print(poisson_model.summary())
     return
 
 
@@ -279,12 +282,10 @@ def _(mo):
 
 
 @app.cell
-def _(np, pd):
-    from scipy.stats import logistic as logistic_dist
-
+def _(logistic, np, pd):
     rng2 = np.random.default_rng(123)
     X_ord = rng2.normal(size=200)
-    latent_score = -2 + 3 * X_ord + logistic_dist.rvs(size=200, random_state=123)
+    latent_score = -2 + 3 * X_ord + logistic.rvs(size=200, random_state=123)
     Y_ord = pd.cut(latent_score,
                    bins=[-np.inf, -1, 1, np.inf],
                    labels=['Low', 'Medium', 'High'])
@@ -295,13 +296,15 @@ def _(np, pd):
 
 
 @app.cell
-def _(df_ord, np, pd, px):
-    from statsmodels.miscmodels.ordinal_model import OrderedModel
-
+def _(OrderedModel, df_ord):
     ord_model = OrderedModel(df_ord['Y'], df_ord[['X']], distr='logit')
     ord_result = ord_model.fit(method='bfgs', disp=False)
     print(ord_result.summary())
+    return (ord_result,)
 
+
+@app.cell
+def _(df_ord, np, ord_result, pd, px):
     # Wizualizacja predykowanych prawdopodobieństw
     X_grid_ord = np.linspace(df_ord['X'].min(), df_ord['X'].max(), 300)
     pred_probs_ord = ord_result.predict(exog=X_grid_ord.reshape(-1, 1))
@@ -312,6 +315,7 @@ def _(df_ord, np, pd, px):
     fig_ord = px.line(pred_df, x='X', y=['Low', 'Medium', 'High'],
                       title='Regresja porządkowa - prawdopodobieństwa klas',
                       labels={'value': 'Prawdopodobieństwo', 'variable': 'Klasa'})
+    fig_ord.show()
     return
 
 
