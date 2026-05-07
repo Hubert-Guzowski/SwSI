@@ -7,27 +7,17 @@ app = marimo.App(width="medium")
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    # Lab 11: LIME — Local Interpretable Model-agnostic Explanations
+    # Lab 9: MARS i AutoML
 
-    LIME to technika tworzenia **lokalnych** wyjaśnień dla pojedynczych predykcji.
-    Metoda działa poprzez:
+    ## Wprowadzenie
 
-    1. Generowanie permutacji wokół badanej obserwacji
-    2. Trenowanie prostego interpretowalnego modelu na tych permutacjach
-    3. Użycie tego modelu do wyjaśnienia lokalnego zachowania złożonego modelu
+    Laboratorium podzielone jest na dwie części:
+    - **MARS** (Multivariate Adaptive Regression Splines)
+    - **AutoML** (FLAML)
 
-    **Ważne ograniczenia:**
-    - Niestabilność wyjaśnień przy małej liczbie próbek
-    - Brak gwarancji globalnej spójności
-    - Wrażliwość na parametry
-
-    **Literatura:**
-    - Artykuł: https://arxiv.org/pdf/1602.04938
-    - Krytyka LIME i SHAP: https://arxiv.org/pdf/1806.08049
-
-    Przed wykonaniem upewnij się, że masz zainstalowane:
+    Przed wykonaniem poniższych komórek upewnij się, że masz zainstalowane:
     ```
-    pip install lime
+    pip install pyearth flaml
     ```
     """)
     return
@@ -37,19 +27,19 @@ def _(mo):
 def _():
     import numpy as np
     import pandas as pd
-    from sklearn.ensemble import RandomForestClassifier
     from sklearn.model_selection import train_test_split
-    from sklearn.metrics import accuracy_score, classification_report
+    from sklearn.metrics import mean_squared_error, r2_score
+    from sklearn.linear_model import LinearRegression
     import plotly.express as px
     import plotly.graph_objects as go
     return (
-        RandomForestClassifier,
-        accuracy_score,
-        classification_report,
+        LinearRegression,
         go,
+        mean_squared_error,
         np,
         pd,
         px,
+        r2_score,
         train_test_split,
     )
 
@@ -57,315 +47,200 @@ def _():
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    ## Przygotowanie danych
+    ## MARS (Multivariate Adaptive Regression Splines)
 
-    Używamy zbioru **UCI Air Quality** (dostępnego w katalogu `../lab3/`).
+    MARS to adaptacyjna metoda regresji dobrze dostosowana do problemów
+    wielowymiarowych. Działa podobnie do drzew regresyjnych, ale jako funkcje
+    bazowe używa spline'ów (zamiast stałych).
+
+    MARS wykonuje:
+    1. **Forward pass** — sekwencyjnie dobiera punkty przełamania minimalizując RSS
+    2. **Pruning** — usuwa najmniej wnoszące spline'y
+
+    W Pythonie dostępny jest pakiet `pyearth` (implementacja `earth` z R):
+    ```
+    pip install sklearn-contrib-py-earth
+    ```
+
+    Alternatywnie można użyć `pygam` lub implementacji w `flaml`.
+    """)
+    return
+
+
+@app.cell
+def _():
+    from statsmodels.datasets import get_rdataset
+
+    boston = get_rdataset("Boston", package="MASS").data
+    print(boston.describe())
+    boston.head()
+    return boston, get_rdataset
+
+
+@app.cell
+def _(boston, train_test_split):
+    X_boston = boston.drop('medv', axis=1)
+    y_boston = boston['medv']
+
+    X_train_b, X_test_b, y_train_b, y_test_b = train_test_split(
+        X_boston, y_boston, test_size=0.3, random_state=123
+    )
+    return X_boston, X_test_b, X_train_b, y_boston, y_test_b, y_train_b
+
+
+@app.cell
+def _(X_test_b, X_train_b, mean_squared_error, r2_score, y_test_b, y_train_b):
+    try:
+        from pyearth import Earth
+
+        # Podstawowy model MARS (degree=1: brak interakcji)
+        mars_basic = Earth(max_degree=1)
+        mars_basic.fit(X_train_b, y_train_b)
+
+        print("=== MARS (degree=1) ===")
+        print(mars_basic.summary())
+
+        pred_mars = mars_basic.predict(X_test_b)
+        print(f"\nRMSE testowe: {mean_squared_error(y_test_b, pred_mars)**0.5:.3f}")
+        print(f"R²: {r2_score(y_test_b, pred_mars):.3f}")
+
+        # Model z interakcjami (degree=2)
+        mars_tuned = Earth(max_degree=2, max_terms=25, min_samples_leaf=10)
+        mars_tuned.fit(X_train_b, y_train_b)
+
+        pred_mars_tuned = mars_tuned.predict(X_test_b)
+        print("\n=== MARS (degree=2, tuned) ===")
+        print(f"RMSE testowe: {mean_squared_error(y_test_b, pred_mars_tuned)**0.5:.3f}")
+        print(f"R²: {r2_score(y_test_b, pred_mars_tuned):.3f}")
+
+    except ImportError:
+        print("Pakiet pyearth nie jest zainstalowany.")
+        print("Instalacja: pip install sklearn-contrib-py-earth")
+        print("\nAlternatywnie używamy GradientBoostingRegressor jako porównanie:")
+
+        from sklearn.ensemble import GradientBoostingRegressor
+        gb_model = GradientBoostingRegressor(n_estimators=200, max_depth=3, random_state=123)
+        gb_model.fit(X_train_b, y_train_b)
+        pred_gb = gb_model.predict(X_test_b)
+        print(f"GBR RMSE: {mean_squared_error(y_test_b, pred_gb)**0.5:.3f}")
+        print(f"GBR R²: {r2_score(y_test_b, pred_gb):.3f}")
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    ### Porównanie MARS z regresją liniową
+    """)
+    return
+
+
+@app.cell
+def _(LinearRegression, X_boston, X_test_b, X_train_b, go, mean_squared_error, r2_score, y_boston, y_test_b, y_train_b):
+    lm_model = LinearRegression()
+    lm_model.fit(X_train_b, y_train_b)
+    lm_pred = lm_model.predict(X_test_b)
+    lm_rmse = mean_squared_error(y_test_b, lm_pred) ** 0.5
+    lm_r2 = r2_score(y_test_b, lm_pred)
+
+    print("=== Regresja liniowa ===")
+    print(f"RMSE testowe: {lm_rmse:.3f}")
+    print(f"R²: {lm_r2:.3f}")
+
+    # Wykres Actual vs Predicted
+    fig_comp = go.Figure()
+    fig_comp.add_scatter(x=y_test_b, y=lm_pred, mode='markers', opacity=0.5,
+                         name='Regresja liniowa')
+    fig_comp.add_scatter(x=[y_boston.min(), y_boston.max()],
+                         y=[y_boston.min(), y_boston.max()],
+                         mode='lines', name='Idealne', line=dict(color='red', dash='dash'))
+    fig_comp.update_layout(title='Regresja liniowa: Actual vs Predicted',
+                           xaxis_title='Rzeczywiste', yaxis_title='Predykowane')
+    fig_comp.show()
+    return fig_comp, lm_model, lm_pred, lm_r2, lm_rmse
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    ## AutoML
+
+    AutoML automatyzuje proces uczenia maszynowego:
+    - podstawowa obróbka danych (brakujące wartości, zmienne kategoryczne, skalowanie)
+    - trening wielu modeli z różnymi parametrami
+    - podstawowa interpretacja modeli
+
+    Przykłady narzędzi AutoML:
+    - **H2O.ai**, **PyCaret**, **FLAML** (Microsoft), **AutoGluon** (Amazon)
+
+    Poniżej przykład z **FLAML** na zbiorze wine quality:
     """)
     return
 
 
 @app.cell
 def _(pd):
-    air_quality_df = pd.read_csv("../lab3/AirQualityUCI.csv", sep=";", decimal=",")
+    url_white = "http://archive.ics.uci.edu/ml/machine-learning-databases/wine-quality/winequality-white.csv"
+    url_red = "http://archive.ics.uci.edu/ml/machine-learning-databases/wine-quality/winequality-red.csv"
 
-    air_quality_df = air_quality_df.iloc[:, :-2]
-    air_quality_df['Date'] = pd.to_datetime(air_quality_df['Date'], format='%d/%m/%Y')
-    air_quality_df['Time'] = pd.to_datetime(air_quality_df['Time'], format='%H.%M.%S')
+    wine_white = pd.read_csv(url_white, sep=';')
+    wine_red = pd.read_csv(url_red, sep=';')
 
-    columns_rename = {
-        'CO(GT)': 'CO', 'PT08.S1(CO)': 'PT08_S1_CO', 'NMHC(GT)': 'NMHC',
-        'C6H6(GT)': 'Benzene', 'PT08.S2(NMHC)': 'PT08_S2_NMHC',
-        'NOx(GT)': 'NOx', 'PT08.S3(NOx)': 'PT08_S3_NOx',
-        'NO2(GT)': 'NO2', 'PT08.S4(NO2)': 'PT08_S4_NO2',
-        'PT08.S5(O3)': 'PT08_S5_O3', 'T': 'Temperature',
-        'RH': 'RelativeHumidity', 'AH': 'AbsoluteHumidity'
-    }
-    air_quality_df = air_quality_df.rename(columns=columns_rename)
+    wine_white['type'] = 'white'
+    wine_red['type'] = 'red'
 
-    print(air_quality_df.info())
-    return air_quality_df, columns_rename
+    wine_df = pd.concat([wine_white, wine_red], ignore_index=True)
+    wine_df.info()
+    return url_red, url_white, wine_df, wine_red, wine_white
 
 
 @app.cell
-def _(air_quality_df, pd, train_test_split):
-    # Czyszczenie danych
-    air_data = air_quality_df.drop(columns=['Date', 'Time'])
-    air_data = air_data.loc[:, ~air_data.isna().all()]
-    air_data[air_data == -200] = __import__('numpy').nan
-
-    # Usunięcie kolumn z >50% braków
-    missing_pct = air_data.isna().mean()
-    air_data = air_data.loc[:, missing_pct <= 0.5]
-
-    # Imputacja medianą
-    for col in air_data.columns:
-        if air_data[col].dtype in ['float64', 'int64']:
-            air_data[col].fillna(air_data[col].median(), inplace=True)
-
-    # Zmienna docelowa i usunięcie NOx (zbyt skorelowany z NO2)
-    air_data['high_pollution'] = (air_data['NO2'] > 140).astype(int)
-    air_clean = air_data.drop(columns=['NO2', 'NOx'], errors='ignore')
-
-    print(f"Rozkład zmiennej docelowej:\n{air_clean['high_pollution'].value_counts()}")
-
-    X = air_clean.drop('high_pollution', axis=1)
-    y = air_clean['high_pollution']
-
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.3, random_state=123, stratify=y
-    )
-    print(f"\nTrain: {X_train.shape}, Test: {X_test.shape}")
-    return (
-        X,
-        X_test,
-        X_train,
-        air_clean,
-        air_data,
-        col,
-        missing_pct,
-        y,
-        y_test,
-        y_train,
-    )
-
-
-@app.cell(hide_code=True)
-def _(mo):
-    mo.md(r"""
-    ## Budowa modelu bazowego (Random Forest)
-    """)
-    return
+def _(train_test_split, wine_df):
+    train_wine, test_wine = train_test_split(wine_df, test_size=0.7, random_state=42)
+    return test_wine, train_wine
 
 
 @app.cell
-def _(RandomForestClassifier, X_test, X_train, accuracy_score, classification_report, y_test, y_train):
-    rf_model = RandomForestClassifier(n_estimators=500, random_state=123)
-    rf_model.fit(X_train.values, y_train.values)
-
-    y_pred_rf = rf_model.predict(X_test.values)
-    print(f"Dokładność modelu: {accuracy_score(y_test, y_pred_rf):.3f}")
-    print("\nRaport klasyfikacji:")
-    print(classification_report(y_test, y_pred_rf))
-    return rf_model, y_pred_rf
-
-
-@app.cell
-def _(X_train, go, pd, rf_model):
-    # Ważność cech globalnie
-    feat_imp = pd.DataFrame({
-        'Feature': X_train.columns,
-        'Importance': rf_model.feature_importances_
-    }).sort_values('Importance', ascending=False)
-
-    fig_imp = go.Figure()
-    fig_imp.add_bar(x=feat_imp['Feature'], y=feat_imp['Importance'])
-    fig_imp.update_layout(title='Random Forest - globalna ważność cech',
-                          xaxis_title='Cecha', yaxis_title='Ważność')
-    fig_imp.show()
-    return feat_imp, fig_imp
-
-
-@app.cell(hide_code=True)
-def _(mo):
-    mo.md(r"""
-    ## LIME — wyjaśnienia lokalne
-    """)
-    return
-
-
-@app.cell
-def _(X_test, X_train, rf_model, y_test):
+def _(test_wine, train_wine):
     try:
-        import lime
-        import lime.lime_tabular
+        from flaml import AutoML
 
-        # Tworzenie explainera LIME
-        explainer = lime.lime_tabular.LimeTabularExplainer(
-            X_train.values,
-            feature_names=list(X_train.columns),
-            class_names=['Low', 'High'],
-            mode='classification',
-            discretize_continuous=True
-        )
+        X_train_wine = train_wine.drop(columns=['quality'])
+        y_train_wine = train_wine['quality']
 
-        # Wyjaśnienie pierwszej obserwacji testowej
-        instance_idx = 0
-        instance = X_test.iloc[instance_idx].values
-        actual = y_test.iloc[instance_idx]
-        predicted = rf_model.predict([instance])[0]
-        prob = rf_model.predict_proba([instance])[0]
+        settings = {
+            "time_budget": 60,       # czas treningu w sekundach
+            "metric": "r2",          # metryka oceny
+            "task": "regression",    # typ zadania
+            "log_file_name": "wine_experiment.log",
+            "seed": 7654321,
+        }
 
-        print(f"Instancja {instance_idx}:")
-        print(f"  Rzeczywista etykieta: {actual}")
-        print(f"  Predykcja modelu: {predicted}")
-        print(f"  Prawdopodobieństwo [Low, High]: {prob}")
+        automl = AutoML()
+        automl.fit(X_train_wine, y_train_wine, **settings)
 
-        explanation = explainer.explain_instance(
-            instance,
-            rf_model.predict_proba,
-            num_features=6,
-            num_samples=1000
-        )
+        # Predykcja
+        from sklearn.metrics import r2_score as r2
 
-        print("\nWyjaśnienie LIME:")
-        for feature, weight in explanation.as_list():
-            print(f"  {feature}: {weight:.4f}")
+        X_test_wine = test_wine.drop(columns=['quality'])
+        y_test_wine = test_wine['quality']
+
+        y_pred_wine = automl.predict(X_test_wine)
+        print(f"AutoML R²: {r2(y_test_wine, y_pred_wine):.4f}")
+        print(f"Najlepszy model: {automl.model.estimator}")
+        print(f"Najlepsze parametry: {automl.best_config}")
+        print(f"Czas treningu najlepszego modelu: {automl.best_config_train_time:.2f}s")
 
     except ImportError:
-        print("Pakiet lime nie jest zainstalowany.")
-        print("Instalacja: pip install lime")
-        explainer = None
-        explanation = None
-    return (
-        actual,
-        explainer,
-        explanation,
-        instance,
-        instance_idx,
-        lime,
-        predicted,
-        prob,
-    )
-
-
-@app.cell(hide_code=True)
-def _(mo):
-    mo.md(r"""
-    **1. Przeanalizuj wyjaśnienia LIME dla pierwszej obserwacji. Które czynniki
-    środowiskowe najbardziej wpływają na predykcję? Zinterpretuj kierunki wpływu.**
-    """)
+        print("Pakiet flaml nie jest zainstalowany.")
+        print("Instalacja: pip install flaml")
     return
 
 
-@app.cell
-def _(X_test, explainer, go, pd, rf_model, y_test):
-    if explainer is not None:
-        # Analiza wielu obserwacji
-        def analyze_multiple(explainer_obj, X_data, y_data, model, n=3):
-            results = []
-            for i in range(min(n, len(X_data))):
-                inst = X_data.iloc[i].values
-                actual_label = y_data.iloc[i]
-                pred = model.predict([inst])[0]
-                prob_val = model.predict_proba([inst])[0]
-
-                exp = explainer_obj.explain_instance(
-                    inst, model.predict_proba, num_features=5, num_samples=1000
-                )
-
-                results.append({
-                    'instance': i,
-                    'actual': actual_label,
-                    'predicted': pred,
-                    'prob_high': prob_val[1],
-                    'top_features': exp.as_list()[:3]
-                })
-
-                print(f"\n--- Instancja {i} ---")
-                print(f"Rzeczywista: {actual_label}, Predykcja: {pred}, Prob(High): {prob_val[1]:.3f}")
-                for feat, w in exp.as_list()[:3]:
-                    print(f"  {feat}: {w:.4f}")
-
-            return results
-
-        analysis_results = analyze_multiple(explainer, X_test, y_test, rf_model, 3)
-    return (analyze_multiple, analysis_results)
-
-
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    ## Analiza stabilności wyjaśnień
-
-    Stabilność sprawdzamy przez wielokrotne generowanie wyjaśnień dla tej samej
-    obserwacji z różną liczbą próbek permutacyjnych.
-    """)
-    return
-
-
-@app.cell
-def _(X_test, explainer, go, rf_model):
-    if explainer is not None:
-        sample_sizes = [200, 500, 1000, 2000]
-        test_instance = X_test.iloc[0].values
-
-        stability_results = {}
-        for n_samples in sample_sizes:
-            exp = explainer.explain_instance(
-                test_instance, rf_model.predict_proba,
-                num_features=5, num_samples=n_samples
-            )
-            stability_results[n_samples] = dict(exp.as_list())
-
-        # Porównanie wyjaśnień dla różnych liczb próbek
-        import pandas as pd_stab
-        stab_df = pd_stab.DataFrame(stability_results).T
-        print("Stabilność wyjaśnień (wiersze = liczba próbek, kolumny = cechy):")
-        print(stab_df.round(4))
-    return (
-        exp,
-        n_samples,
-        pd_stab,
-        sample_sizes,
-        stab_df,
-        stability_results,
-        test_instance,
-    )
-
-
-@app.cell(hide_code=True)
-def _(mo):
-    mo.md(r"""
-    ## Porównanie ważności globalnej vs lokalnej
-    """)
-    return
-
-
-@app.cell
-def _(X_test, feat_imp, explainer, go, pd, rf_model, y_test):
-    if explainer is not None:
-        # Obliczamy lokalną ważność dla N=10 obserwacji
-        local_weights = {}
-        n_explain = min(10, len(X_test))
-
-        for idx in range(n_explain):
-            exp_local = explainer.explain_instance(
-                X_test.iloc[idx].values, rf_model.predict_proba,
-                num_features=len(X_test.columns), num_samples=500
-            )
-            for feat, w in exp_local.as_list():
-                feat_clean = feat.split(' ')[0] if ' ' in feat else feat
-                local_weights.setdefault(feat_clean, []).append(abs(w))
-
-        local_avg = {k: __import__('numpy').mean(v) for k, v in local_weights.items()}
-        local_df = pd.DataFrame({'Feature': list(local_avg.keys()),
-                                  'Local_avg': list(local_avg.values())}).sort_values('Local_avg', ascending=False)
-
-        print("Globalna ważność (Random Forest):")
-        print(feat_imp.head(5).to_string(index=False))
-
-        print("\nŚrednia lokalna ważność (LIME):")
-        print(local_df.head(5).to_string(index=False))
-    return (
-        exp_local,
-        feat_clean,
-        idx,
-        local_avg,
-        local_df,
-        local_weights,
-        n_explain,
-        w,
-    )
-
-
-@app.cell(hide_code=True)
-def _(mo):
-    mo.md(r"""
-    **2. Porównaj wyjaśnienia LIME dla podobnych obserwacji. Czy są różnice
-    w interpretacji? Co może być ich przyczyną?**
-
-    **3. Wybierz kilka przypadków o różnych poziomach pewności predykcji i
-    porównaj ich wyjaśnienia LIME. Jakie wzorce można zaobserwować?**
+    **3. Pobierz dane z konkursu i wyślij swoje pierwsze wyniki w oparciu o AutoML.**
     """)
     return
 
