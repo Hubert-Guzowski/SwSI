@@ -1,6 +1,6 @@
 import marimo
 
-__generated_with = "0.19.9"
+__generated_with = "0.23.6"
 app = marimo.App(width="medium")
 
 
@@ -41,7 +41,7 @@ def _(mo):
     $$
 
     SHAP jest matematycznie uzasadnione i sprawiedliwie rozdziela wartość predykcji między cechy. Główne ograniczenia: wymagające obliczeniowo (dla drzew TreeExplainer daje dokładne wartości w czasie wielomianowym) i nie wyjaśnia automatycznie korelacji między cechami.
-          
+
     Artykuł: https://arxiv.org/pdf/1705.07874
     Krytyka LIME i SHAP: https://arxiv.org/pdf/1806.08049
     """)
@@ -57,6 +57,7 @@ def _():
     import plotly.express as px
     import plotly.graph_objects as go
     import matplotlib.pyplot as plt
+
     return go, mean_squared_error, np, pd, plt, px, r2_score, train_test_split
 
 
@@ -130,7 +131,7 @@ def _(train_test_split, wine_data):
         X_wine, y_wine, test_size=0.2, random_state=42
     )
     print(f"Train: {X_train.shape}, Test: {X_test.shape}")
-    return X_test, X_train, X_wine, y_test, y_train, y_wine
+    return X_test, X_train, y_test, y_train
 
 
 @app.cell
@@ -143,7 +144,7 @@ def _(X_test, X_train, mean_squared_error, np, r2_score, y_test, y_train):
     y_pred = cb_model.predict(X_test)
     print(f"RMSE: {np.sqrt(mean_squared_error(y_test, y_pred)):.3f}")
     print(f"R²:   {r2_score(y_test, y_pred):.3f}")
-    return CatBoostRegressor, cb_model, y_pred
+    return cb_model, y_pred
 
 
 @app.cell
@@ -160,7 +161,7 @@ def _(X_train, cb_model, go, pd):
         xaxis_title="Cecha", yaxis_title="Ważność",
     )
     fig_imp.show()
-    return (feat_imp,)
+    return
 
 
 @app.cell(hide_code=True)
@@ -255,17 +256,14 @@ def _(cb_model, instance, lime_explainer, pd):
     stab_df.index.name = "num_samples"
     print("Wagi LIME dla 6 cech przy różnych num_samples:")
     print(stab_df.round(3).to_string())
-    return (stab_df,)
+    return
 
 
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
     ### Ćwiczenie 1
-
-    **a)** Wygeneruj wyjaśnienia LIME dla obserwacji z najwyższą i najniższą predykcją jakości w zbiorze testowym. Które cechy podnoszą, a które obniżają przewidywaną ocenę?
-
-    **b)** Dla jednej wybranej obserwacji uruchom LIME 5 razy z `num_samples=200` (bez `random_state` w `explain_instance`). Czy wyjaśnienia są powtarzalne? Od jakiej wartości `num_samples` wagi przestają istotnie fluktuować?
+    Dla jednej wybranej obserwacji uruchom LIME 5 razy z `num_samples=200` (bez `random_state` w `explain_instance`). Czy wyjaśnienia są powtarzalne? Od jakiej wartości `num_samples` wagi przestają istotnie fluktuować?
     """)
     return
 
@@ -300,7 +298,7 @@ def _(X_test, cb_model, plt):
     plt.tight_layout()
     plt.subplots_adjust(left=0.25)
     plt.show()
-    return shap, shap_explainer, shap_values
+    return shap, shap_values
 
 
 @app.cell(hide_code=True)
@@ -350,7 +348,6 @@ def _(mo):
 
 @app.cell
 def _(plt, shap, shap_values):
-    plt.figure(figsize=(10, 4))
     shap.plots.scatter(
         shap_values[:, "alcohol"],
         color=shap_values[:, "volatile acidity"],
@@ -450,7 +447,7 @@ def _(wine_data):
 
     accuracy_type = (lr_type.predict(X_type_scaled) == y_type).mean()
     print(f"Dokładność predykcji koloru wina: {accuracy_type:.3f}")
-    return LogisticRegression, StandardScaler, X_type, X_type_scaled, lr_type, scaler_type, y_type
+    return
 
 
 @app.cell
