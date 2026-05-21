@@ -1,6 +1,6 @@
 import marimo
 
-__generated_with = "0.23.3"
+__generated_with = "0.23.4"
 app = marimo.App(width="medium")
 
 
@@ -377,7 +377,7 @@ def _(mo):
 
     ## Moralizacja sieci bayesowskiej
 
-    Do każdej sieci bayesowskiej można skonstruować równoważny MRF poprzez **moralizację**: usuwamy kierunki krawędzi i łączymy parami wszystkich rodziców każdego węzła (stąd potoczna nazwa: „ożeń rodziców"). Operacja zachowuje rozkład łączny, ale traci informację o niezależnościach kierunkowych — w szczególności o v-strukturach.
+    Do każdej sieci bayesowskiej można skonstruować równoważny MRF poprzez **moralizację**: usuwamy kierunki krawędzi i łączymy parami wszystkich rodziców każdego węzła (stąd potoczna nazwa: „ożeń rodziców"). Operacja zachowuje rozkład łączny, ale traci informację o niezależnościach kierunkowych.
     """)
     return
 
@@ -527,7 +527,7 @@ def _(mo):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    # NBC i TAN — szczególne sieci bayesowskie
+    # NBC i TAN — szczególne przypadki sieci bayesowskich
 
     Naiwny klasyfikator bayesowski (NBC) i jego rozszerzenie TAN (Tree-Augmented Naive Bayes) to sieci bayesowskie o ustalonej, prostej strukturze:
 
@@ -597,7 +597,7 @@ def _(mo):
 
     ## Zadanie 1 — domenowa sieć bayesowska vs nauczona
 
-    Zaprojektuj ręcznie sieć bayesowską dla zbioru Adult opartą na wiedzy domenowej (np. `age -> marital`, `education -> occupation`, `occupation -> income`).
+    Zaprojektuj ręcznie prostą sieć bayesowską dla zbioru Adult opartą na wiedzy domenowej (np. `age -> marital`, `education -> occupation`, `occupation -> income`).
 
     **a)** Dopasuj parametry obu sieci (ręcznej i wyuczonej HC + BIC) i porównaj log-likelihood na zbiorze.
 
