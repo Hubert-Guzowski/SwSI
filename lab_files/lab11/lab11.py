@@ -159,13 +159,13 @@ def _(GridSearchCV, X_train, lgb, time, y_train):
         "n_estimators": [100, 300, 500],
     }
 
-    t0 = time.perf_counter()
+    _t0 = time.perf_counter()
     grid = GridSearchCV(
         lgb.LGBMRegressor(random_state=42, verbose=-1),
         grid_params, cv=3, scoring="neg_root_mean_squared_error", n_jobs=-1,
     )
     grid.fit(X_train, y_train)
-    t_grid = time.perf_counter() - t0
+    t_grid = time.perf_counter() - _t0
 
     print(f"Grid search: {len(grid.cv_results_['params'])} kombinacji, {t_grid:.1f}s")
     print(f"Najlepsze parametry: {grid.best_params_}")
@@ -222,15 +222,15 @@ def _(TPESampler, X_train, cross_val_score, lgb, optuna, time, y_train):
         study_name="lgbm_bike_tpe",
     )
 
-    t0 = time.perf_counter()
+    _t0 = time.perf_counter()
     study.optimize(objective, n_trials=30, show_progress_bar=False)
-    t_optuna = time.perf_counter() - t0
+    t_optuna = time.perf_counter() - _t0
 
     print(f"Optuna (TPE, 30 prób): {t_optuna:.1f}s")
     print(f"Najlepszy RMSE (CV): {study.best_value:.2f}")
     print(f"Najlepsze parametry:")
-    for k, v in study.best_params.items():
-        print(f"  {k}: {v}")
+    for _k, _v in study.best_params.items():
+        print(f"  {_k}: {_v}")
     return (study,)
 
 
@@ -351,9 +351,9 @@ def _(
         pruner=MedianPruner(n_startup_trials=5, n_warmup_steps=30),
     )
 
-    t0 = time.perf_counter()
+    _t0 = time.perf_counter()
     study_pruned.optimize(objective_pruned, n_trials=30, show_progress_bar=False)
-    t_pruned = time.perf_counter() - t0
+    t_pruned = time.perf_counter() - _t0
 
     n_pruned = sum(t.state.name == "PRUNED" for t in study_pruned.trials)
     n_complete = sum(t.state.name == "COMPLETE" for t in study_pruned.trials)
@@ -488,9 +488,9 @@ def _(
         "verbose": 0,
     }
 
-    t0 = time.perf_counter()
+    _t0 = time.perf_counter()
     automl.fit(X_train, y_train, **settings)
-    t_flaml = time.perf_counter() - t0
+    t_flaml = time.perf_counter() - _t0
 
     flaml_pred = automl.predict(X_test)
     flaml_rmse = np.sqrt(mean_squared_error(y_test, flaml_pred))
@@ -532,8 +532,8 @@ def _(automl, go, pd):
     fig_flaml.show()
 
     print(f"\nNajlepsza konfiguracja ({automl.best_estimator}):")
-    for k, v in automl.best_config.items():
-        print(f"  {k}: {v}")
+    for _k, _v in automl.best_config.items():
+        print(f"  {_k}: {_v}")
     return
 
 
