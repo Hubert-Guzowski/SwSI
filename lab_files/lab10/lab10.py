@@ -188,7 +188,7 @@ def _(X_test, X_train, cb_model, y_pred, y_test):
         random_state=42,
     )
 
-    instance_idx = 0
+    instance_idx = 1
     instance = X_test.iloc[instance_idx].values
 
     lime_exp = lime_explainer.explain_instance(

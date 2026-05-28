@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.14.2"
 dependencies = [
     "catboost>=1.2.10",
+    "flaml>=2.6.0",
     "islp>=0.4.1",
     "l0bnb>=1.0.0",
     "lightgbm>=4.6.0",
@@ -14,6 +15,8 @@ dependencies = [
     "matplotlib>=3.9.0",
     "networkx>=3.6.1",
     "numpy>=2.4.2",
+    "optuna>=4.8.0",
+    "optuna-integration[lightgbm]>=4.8.0",
     "pandas>=3.0.1",
     "pgmpy>=1.1.2",
     "plotly>=6.6.0",
